@@ -1,0 +1,384 @@
+/* ============================================================
+   Dashboard.css — enriched layout
+   ============================================================ */
+
+.dashboard {
+  padding: 24px;
+  max-width: 1500px;
+  margin: 0 auto;
+}
+
+/* ── Header ─────────────────────────────────────────────────── */
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.header-left h1 {
+  font-size: 30px;
+  font-weight: 700;
+  color: #2c3e50;
+  margin: 0 0 6px 0;
+}
+
+.dashboard-subtitle {
+  font-size: 15px;
+  color: #6c757d;
+  margin: 0;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.system-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #ecfdf5;
+  color: #065f46;
+  border: 1px solid #6ee7b7;
+  padding: 7px 16px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.status-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #22c55e;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34,197,94,0.5); }
+  50%       { box-shadow: 0 0 0 6px rgba(34,197,94,0); }
+}
+
+.live-clock {
+  font-size: 15px;
+  font-weight: 700;
+  color: #374151;
+  background: #f9fafb;
+  border: 1px solid #e5e7eb;
+  padding: 7px 16px;
+  border-radius: 999px;
+  letter-spacing: 1px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Top Stats Row (5 cards) ─────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+/* ── Main Grid: door | activity | health ────────────────────── */
+.dashboard-main-grid {
+  display: grid;
+  grid-template-columns: 300px 1fr 1fr;
+  gap: 20px;
+  margin-bottom: 24px;
+  align-items: start;
+}
+
+/* ── Door Control ────────────────────────────────────────────── */
+.door-indicator-neutral {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  background: #fafafa;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px solid #f0f0f0;
+}
+
+.door-info {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+}
+
+.door-icon-circle {
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 30px;
+  background: #f3f4f6;
+  transition: background 0.3s;
+  flex-shrink: 0;
+}
+
+.door-icon-open { background: #dcfce7; }
+
+.door-text {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.door-title {
+  font-size: 12px;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+}
+
+.door-badge {
+  padding: 5px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.badge-locked   { background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+.badge-unlocked { background: #f0fdf4; color: #16a34a; border: 1px solid #bbf7d0; }
+
+.door-meta {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-top: 2px;
+}
+
+.door-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Recent Activity Feed ────────────────────────────────────── */
+.activity-feed {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.activity-empty {
+  text-align: center;
+  color: #9ca3af;
+  padding: 30px 0;
+  font-size: 14px;
+}
+
+.activity-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border-left: 3px solid transparent;
+  background: #fafafa;
+}
+
+.activity-granted { border-left-color: #22c55e; background: #f0fdf4; }
+.activity-denied  { border-left-color: #ef4444; background: #fef2f2; }
+
+.activity-icon { font-size: 20px; flex-shrink: 0; }
+
+.activity-body { flex: 1; min-width: 0; }
+
+.activity-user {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2937;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.activity-detail { font-size: 12px; color: #6b7280; margin-top: 2px; }
+.activity-time   { font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0; }
+
+/* ── System Health ───────────────────────────────────────────── */
+.health-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.health-metric {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.health-label {
+  font-size: 12px;
+  color: #6b7280;
+  width: 190px;
+  flex-shrink: 0;
+}
+
+.health-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: #f3f4f6;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.health-bar {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 0.6s ease;
+}
+
+.health-value {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2937;
+  width: 44px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.health-status-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.health-chip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.chip-green { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.chip-red   { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; text-decoration: line-through; opacity: 0.85; }
+.chip-yellow { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+/* ── Authentication Pipeline ─────────────────────────────────── */
+.pipeline-desc {
+  font-size: 14px;
+  color: #6b7280;
+  margin: 0 0 20px 0;
+  line-height: 1.6;
+}
+
+.pipeline-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.pipeline-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 130px;
+  flex: 1;
+}
+
+.pipeline-step-icon {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+  margin-bottom: 8px;
+  position: relative;
+}
+
+.pipeline-step-num {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  color: white;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pipeline-step-label { font-size: 13px; font-weight: 700; color: #1f2937; margin-bottom: 4px; }
+.pipeline-step-desc  { font-size: 11px; color: #6b7280; line-height: 1.5; max-width: 125px; }
+
+.pipeline-arrow {
+  font-size: 22px;
+  color: #d1d5db;
+  flex-shrink: 0;
+  align-self: center;
+  padding: 0 2px;
+  margin-top: -24px;
+}
+
+/* ── Emergency Modal ─────────────────────────────────────────── */
+.emergency-modal { display: flex; flex-direction: column; gap: 20px; }
+
+.emergency-warning {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+  padding: 16px;
+  border-radius: 8px;
+  margin: 0;
+  font-weight: 500;
+}
+
+.emergency-pin-input {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  border: 2px solid #ddd;
+  border-radius: 8px;
+  text-align: center;
+  letter-spacing: 4px;
+  font-weight: 600;
+  box-sizing: border-box;
+}
+
+.emergency-pin-input:focus { outline: none; border-color: #667eea; }
+.emergency-actions { display: flex; gap: 12px; }
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 1200px) {
+  .stats-row               { grid-template-columns: repeat(3, 1fr); }
+  .dashboard-main-grid     { grid-template-columns: 1fr 1fr; }
+  .health-card             { grid-column: 1 / -1; }
+}
+
+@media (max-width: 900px) {
+  .stats-row               { grid-template-columns: repeat(2, 1fr); }
+  .dashboard-main-grid     { grid-template-columns: 1fr; }
+  .pipeline-steps          { flex-wrap: wrap; justify-content: center; }
+  .pipeline-arrow          { display: none; }
+}
+
+@media (max-width: 600px) {
+  .dashboard               { padding: 14px; }
+  .header-left h1          { font-size: 22px; }
+  .stats-row               { grid-template-columns: 1fr 1fr; }
+  .header-right            { flex-wrap: wrap; }
+  .health-label            { width: 130px; }
+}
+
+

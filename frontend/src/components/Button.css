@@ -1,0 +1,78 @@
+.btn {
+  padding: 10px 18px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  text-transform: none;
+  letter-spacing: 0.2px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #1F2933;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+}
+
+.btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Flat palette variants */
+.btn-success {
+  background: #22C55E;
+  color: white;
+  border-color: #22C55E;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: #1F2933;
+  border-color: #374151;
+}
+
+.btn-danger {
+  background: transparent;
+  color: #EF4444;
+  border-color: #EF4444;
+}
+
+.btn-warning {
+  background: transparent;
+  color: #F59E0B;
+  border-color: #F59E0B;
+}
+
+.btn-primary {
+  background: #1F2933;
+  color: white;
+  border-color: #1F2933;
+}
+
+/* Sizes */
+.btn-small {
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+.btn-medium {
+  padding: 10px 18px;
+  font-size: 14px;
+}
+
+.btn-large {
+  padding: 12px 22px;
+  font-size: 15px;
+}
+
+.btn-full-width {
+  width: 100%;
+}

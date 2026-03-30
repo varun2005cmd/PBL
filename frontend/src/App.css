@@ -1,0 +1,25 @@
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+}
+
+.app-content {
+  flex: 1;
+  padding-bottom: 60px;
+}
+
+.app-footer {
+  background: #374151; /* slate */
+  color: white;
+  text-align: center;
+  padding: 18px;
+  margin-top: auto;
+}
+
+.app-footer p {
+  margin: 0;
+  font-size: 14px;
+  opacity: 0.85;
+}

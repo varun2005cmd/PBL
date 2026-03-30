@@ -1,0 +1,32 @@
+.card {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  overflow: hidden;
+  transition: all 0.18s ease;
+}
+
+.card:hover {
+  box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+}
+
+.card-header {
+  padding: 12px 16px;
+  background: transparent;
+  color: #374151; /* slate */
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-bottom: 1px solid rgba(15,23,42,0.03);
+}
+
+.card-body {
+  padding: 18px;
+}
+
+/* Card color variants keep subtle header accent via text color */
+.card-success .card-header { color: #22C55E }
+.card-danger .card-header { color: #EF4444 }
+.card-warning .card-header { color: #F59E0B }
+.card-info .card-header { color: #3B82F6 }
