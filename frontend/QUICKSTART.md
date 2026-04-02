@@ -16,12 +16,12 @@ Application will open at: **http://localhost:3000**
 
 ## Features
 
-✅ **Dashboard** - Real-time door status, manual controls, emergency unlock  
-✅ **Access Logs** - Comprehensive access history with filtering  
-✅ **User Management** - Enable/disable authorized users  
-✅ **Mock Data Support** - Works standalone without backend  
-✅ **Responsive Design** - Mobile and desktop friendly  
-✅ **Intrusion Alerts** - Real-time security notifications  
+ **Dashboard** - Real-time door status, manual controls, emergency unlock  
+ **Access Logs** - Comprehensive access history with filtering  
+ **User Management** - Enable/disable authorized users  
+ **Mock Data Support** - Works standalone without backend  
+ **Responsive Design** - Mobile and desktop friendly  
+ **Intrusion Alerts** - Real-time security notifications  
 
 ## Tech Stack
 
@@ -32,7 +32,7 @@ Application will open at: **http://localhost:3000**
 
 ## Documentation
 
-📖 See [SETUP.md](SETUP.md) for detailed installation and configuration guide.
+ See [SETUP.md](SETUP.md) for detailed installation and configuration guide.
 
 ## Backend Integration
 
@@ -44,11 +44,11 @@ Update API URL in: `src/api/config.js`
 
 ```
 src/
-├── api/              # API layer (Axios)
-├── components/       # Reusable UI components
-├── pages/           # Main application pages
-├── App.js           # Router & layout
-└── index.js         # Entry point
+ api/              # API layer (Axios)
+ components/       # Reusable UI components
+ pages/           # Main application pages
+ App.js           # Router & layout
+ index.js         # Entry point
 ```
 
 ## Future Enhancements
@@ -61,4 +61,4 @@ src/
 
 ---
 
-Built with ❤️ for secure access control
+Built with  for secure access control

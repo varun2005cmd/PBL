@@ -32,12 +32,16 @@ class AccessLog(db.Model):
         return "Authorized" if self.status == "granted" else "Unauthorized"
 
     def to_dict(self) -> dict:
+        # "accessType" and "userName" are the field names the frontend expects.
+        # "result" is kept as "Unlocked"/"Denied" for the activity feed result badge.
         return {
             "id":         self.id,
             "timestamp":  self.timestamp,
             "status":     self.status,
-            "result":     self.result,          # legacy field kept for UI
-            "user":       self.user,
+            "result":     "Unlocked" if self.status == "granted" else "Denied",
+            "accessType": "Authorized" if self.status == "granted" else "Unauthorized",
+            "userName":   self.user or "unknown",
+            "user":       self.user,            # kept for pipeline compatibility
             "liveness":   self.liveness,
             "confidence": round(self.confidence * 100, 1),  # 0-100 %
             "detail":     self.detail,

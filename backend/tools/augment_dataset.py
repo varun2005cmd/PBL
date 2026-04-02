@@ -62,13 +62,13 @@ def main():
         # skip files that are already augmented to avoid double-augmenting
         originals = [p for p in originals if "_aug_" not in p.stem]
 
-        print(f"  {user_dir.name}: {len(originals)} original(s) → augmenting …")
+        print(f"  {user_dir.name}: {len(originals)} original(s)  augmenting ")
         for img_path in sorted(originals):
             try:
                 img = Image.open(str(img_path)).convert("RGB")
                 n = augment_image(img, img_path.stem, user_dir)
                 total_saved += n
-                print(f"    {img_path.name} → +{n} variants")
+                print(f"    {img_path.name}  +{n} variants")
             except Exception as e:
                 print(f"    WARN: could not process {img_path.name}: {e}")
 

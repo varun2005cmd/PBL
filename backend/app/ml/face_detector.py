@@ -1,6 +1,14 @@
 # =============================================================================
 # app/ml/face_detector.py
-# Face Detection using MTCNN
+# Face Detection using MediaPipe FaceLandmarker (Tasks API)
+#
+# Uses the MediaPipe Tasks API (mediapipe >= 0.10) which works on Python 3.14+
+# and on Raspberry Pi 5 aarch64.
+#
+# Requires the face_landmarker.task model file (downloaded by
+# tools/download_models.py).
+#
+# Install: pip install mediapipe
 #
 # Provides detect_face(frame) which returns:
 #   {
@@ -13,27 +21,89 @@
 # Returns None if no face is detected.
 # =============================================================================
 
-import numpy as np
-import cv2
-from typing import Optional, Dict, Any
+import logging
+from pathlib import Path
+from typing import Any, Dict, Optional
 
-# MTCNN is imported lazily so the module can be imported without
-# GPU-heavy initialisation at startup; the detector is cached after first use.
-_detector = None
+import cv2
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# --------------------------------------------------------------------------
+# Model file location  (downloaded once by tools/download_models.py)
+# --------------------------------------------------------------------------
+_MODEL_PATH = Path(__file__).parent / "model_store" / "face_landmarker.task"
+
+# MediaPipe FaceLandmarker landmark indices for 5 keypoints used by liveness.py
+# (same indices as before — unchanged)
+_MP_LEFT_EYE    = 33    # outer left eye corner (subject's left)
+_MP_RIGHT_EYE   = 263   # outer right eye corner (subject's right)
+_MP_NOSE        = 1     # nose tip
+_MP_MOUTH_LEFT  = 61    # left mouth corner
+_MP_MOUTH_RIGHT = 291   # right mouth corner
+
+_landmarker = None   # cached FaceLandmarker instance
 
 
 def _get_detector():
-    """Lazy-load and cache the MTCNN detector (CPU-only)."""
-    global _detector
-    if _detector is None:
+    """Lazy-load and cache the MediaPipe FaceLandmarker (Tasks API)."""
+    global _landmarker
+    if _landmarker is not None:
+        return _landmarker
+
+    try:
+        import mediapipe as mp
+        BaseOptions          = mp.tasks.BaseOptions
+        FaceLandmarker       = mp.tasks.vision.FaceLandmarker
+        FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+        VisionRunningMode    = mp.tasks.vision.RunningMode
+    except ImportError as exc:
+        raise ImportError(
+            "mediapipe is not installed. Run: pip install mediapipe"
+        ) from exc
+
+    if not _MODEL_PATH.exists():
+        raise FileNotFoundError(
+            f"MediaPipe model not found at {_MODEL_PATH}.\n"
+            "Run:  python tools/download_models.py"
+        )
+
+    options = FaceLandmarkerOptions(
+        base_options=BaseOptions(model_asset_path=str(_MODEL_PATH)),
+        running_mode=VisionRunningMode.IMAGE,
+        num_faces=1,
+        min_face_detection_confidence=0.5,
+        min_face_presence_confidence=0.5,
+        min_tracking_confidence=0.5,
+        output_face_blendshapes=False,
+        output_facial_transformation_matrixes=False,
+    )
+    _landmarker = FaceLandmarker.create_from_options(options)
+    return _landmarker
+
+
+def warmup() -> None:
+    """
+    Force-load the MediaPipe model before the door loop starts.
+    Call once at application startup to avoid a slow first authentication.
+    """
+    try:
+        _get_detector()
+        logger.info("MediaPipe FaceLandmarker warmed up.")
+    except Exception as exc:
+        logger.warning("Face detector warmup failed: %s", exc)
+
+
+def release() -> None:
+    """Release MediaPipe resources. Call at application shutdown."""
+    global _landmarker
+    if _landmarker is not None:
         try:
-            from mtcnn import MTCNN  # pip install mtcnn
-            _detector = MTCNN()
-        except ImportError as exc:
-            raise ImportError(
-                "MTCNN is not installed. Run: pip install mtcnn tensorflow"
-            ) from exc
-    return _detector
+            _landmarker.close()
+        except Exception:
+            pass
+        _landmarker = None
 
 
 # ---------------------------------------------------------------------------
@@ -42,7 +112,7 @@ def _get_detector():
 
 def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
     """
-    Detect a single face in *frame* using MTCNN.
+    Detect a single face in *frame* using MediaPipe FaceLandmarker.
 
     Parameters
     ----------
@@ -55,76 +125,53 @@ def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
         Detection result with keys:
           - face_crop  : RGB np.ndarray, shape (160, 160, 3), uint8
           - bbox       : [x1, y1, x2, y2]  (pixel coords)
-          - landmarks  : dict with 5 named keypoints
+          - landmarks  : dict with 5 named keypoints (pixel coords)
           - confidence : float [0, 1]
-        Returns None when no face / low-confidence detection.
+        Returns None when no face detected.
     """
-    # MTCNN expects RGB; OpenCV gives BGR
+    import mediapipe as mp
+
+    h, w = frame.shape[:2]
     rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Downscale for speed on Raspberry Pi before detection
-    scale = _compute_scale(rgb, max_dim=640)
-    if scale < 1.0:
-        small = cv2.resize(rgb, (0, 0), fx=scale, fy=scale)
-    else:
-        small = rgb
-        scale = 1.0
+    landmarker = _get_detector()
+    mp_image   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+    result     = landmarker.detect(mp_image)
 
-    detector = _get_detector()
-    results = detector.detect_faces(small)
-
-    if not results:
+    if not result.face_landmarks:
         return None
 
-    # Pick the detection with the highest confidence
-    best = max(results, key=lambda r: r["confidence"])
+    face_lm = result.face_landmarks[0]   # list of NormalizedLandmark
 
-    if best["confidence"] < 0.90:
-        return None
+    def _px(lm_idx: int):
+        lm = face_lm[lm_idx]
+        return (int(lm.x * w), int(lm.y * h))
 
-    # Re-scale bbox / keypoints back to original resolution
-    x, y, w, h = [int(v / scale) for v in best["box"]]
-    # MTCNN box can have negative x/y — clamp
-    x, y = max(0, x), max(0, y)
-    x2 = min(frame.shape[1], x + w)
-    y2 = min(frame.shape[0], y + h)
-
-    kp = best["keypoints"]
     landmarks = {
-        "left_eye":    _rescale_pt(kp["left_eye"],    scale),
-        "right_eye":   _rescale_pt(kp["right_eye"],   scale),
-        "nose":        _rescale_pt(kp["nose"],         scale),
-        "mouth_left":  _rescale_pt(kp["mouth_left"],  scale),
-        "mouth_right": _rescale_pt(kp["mouth_right"], scale),
+        "left_eye":    _px(_MP_LEFT_EYE),
+        "right_eye":   _px(_MP_RIGHT_EYE),
+        "nose":        _px(_MP_NOSE),
+        "mouth_left":  _px(_MP_MOUTH_LEFT),
+        "mouth_right": _px(_MP_MOUTH_RIGHT),
     }
 
-    # Crop and resize to 160×160 (FaceNet input size)
-    face_region = rgb[y:y2, x:x2]
+    # Derive bounding box from all landmark x/y coords
+    xs = [int(lm.x * w) for lm in face_lm]
+    ys = [int(lm.y * h) for lm in face_lm]
+    pad = int(0.15 * (max(xs) - min(xs)))   # add 15% padding around face
+    x1 = max(0, min(xs) - pad)
+    y1 = max(0, min(ys) - pad)
+    x2 = min(w, max(xs) + pad)
+    y2 = min(h, max(ys) + pad)
+
+    face_region = rgb[y1:y2, x1:x2]
     if face_region.size == 0:
         return None
     face_crop = cv2.resize(face_region, (160, 160))
 
     return {
         "face_crop":  face_crop,          # RGB (160, 160, 3)
-        "bbox":       [x, y, x2, y2],
+        "bbox":       [x1, y1, x2, y2],
         "landmarks":  landmarks,
-        "confidence": float(best["confidence"]),
+        "confidence": 1.0,               # MediaPipe Tasks API does not expose a scalar score
     }
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def _compute_scale(image: np.ndarray, max_dim: int) -> float:
-    """Return a scale factor so the longest side fits within *max_dim*."""
-    h, w = image.shape[:2]
-    longest = max(h, w)
-    if longest <= max_dim:
-        return 1.0
-    return max_dim / longest
-
-
-def _rescale_pt(pt: tuple, scale: float) -> tuple:
-    """Inverse-scale a (x, y) keypoint from the downscaled space."""
-    return (int(pt[0] / scale), int(pt[1] / scale))

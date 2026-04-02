@@ -4,17 +4,17 @@
 # Standalone graphical evaluation harness for the face-recognition pipeline.
 #
 # What it does:
-#   1. Runs MTCNN face detection on every image → draws bounding boxes.
-#   2. Generates FaceNet embeddings for the train set → builds user prototypes.
+#   1. Runs MediaPipe Face Mesh detection on every image  draws bounding boxes.
+#   2. Generates FaceNet embeddings for the train set  builds user prototypes.
 #   3. Trains an SVM on the embeddings.
-#   4. Tests on the test set → collects predictions, distances, confidences.
+#   4. Tests on the test set  collects predictions, distances, confidences.
 #   5. Produces 6 saved plots:
-#       plot_face_detection.png   – face crops + bbox overlay for every image
-#       plot_embeddings_pca.png   – 2-D PCA of all embeddings (train vs test)
-#       plot_confusion_matrix.png – sklearn-style confusion matrix
-#       plot_confidence_dist.png  – confidence score violin per user
-#       plot_distance_dist.png    – Euclidean distance distribution
-#       plot_metrics_summary.png  – bar chart: accuracy, precision, recall, F1
+#       plot_face_detection.png    face crops + bbox overlay for every image
+#       plot_embeddings_pca.png    2-D PCA of all embeddings (train vs test)
+#       plot_confusion_matrix.png  sklearn-style confusion matrix
+#       plot_confidence_dist.png   confidence score violin per user
+#       plot_distance_dist.png     Euclidean distance distribution
+#       plot_metrics_summary.png   bar chart: accuracy, precision, recall, F1
 #
 # Run from the backend/ directory:
 #   python -m tests.evaluate_dataset
@@ -29,14 +29,14 @@ import time
 import textwrap
 from pathlib import Path
 
-# ── ensure backend/ is on the path so `app` package is importable ─────────
+#  ensure backend/ is on the path so `app` package is importable 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 import cv2
 import numpy as np
 import matplotlib
-matplotlib.use("Agg")          # headless — writes PNG files, no display needed
+matplotlib.use("Agg")          # headless  writes PNG files, no display needed
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.gridspec import GridSpec
@@ -46,7 +46,7 @@ from sklearn.metrics import (
 )
 from sklearn.decomposition import PCA
 
-# ── dataset paths ─────────────────────────────────────────────────────────
+#  dataset paths 
 DATASET_DIR = BACKEND_DIR / "test_dataset"
 TRAIN_DIR   = DATASET_DIR / "train"
 TEST_DIR    = DATASET_DIR / "test"
@@ -83,7 +83,7 @@ def save_fig(fig, name: str):
     path = OUTPUT_DIR / name
     fig.savefig(str(path), dpi=120, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved → {path}")
+    print(f"  Saved  {path}")
 
 
 COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
@@ -132,7 +132,7 @@ def plot_face_detection(train_det: dict, test_det: dict):
 
     for row, user in enumerate(users):
         col = 0
-        # ── train images ──────────────────────────────────────────────────
+        #  train images 
         for i in range(n_train_max):
             ax = axes[row][col]
             ax.axis("off")
@@ -159,14 +159,14 @@ def plot_face_detection(train_det: dict, test_det: dict):
                     ax.set_title(f"Train {i+1}\nNO FACE", fontsize=7, color="red")
             col += 1
 
-        # ── separator ─────────────────────────────────────────────────────
+        #  separator 
         axes[row][col].axis("off")
-        axes[row][col].text(0.5, 0.5, "│", ha="center", va="center",
+        axes[row][col].text(0.5, 0.5, "", ha="center", va="center",
                             fontsize=20, color="gray",
                             transform=axes[row][col].transAxes)
         col += 1
 
-        # ── test images ───────────────────────────────────────────────────
+        #  test images 
         for i in range(n_test_max):
             ax = axes[row][col]
             ax.axis("off")
@@ -233,7 +233,7 @@ def plot_embeddings_pca(train_emb: dict, test_emb: dict):
             X.append(e); labels.append(user); split.append("test")
 
     if len(X) < 2:
-        print("  Not enough embeddings for PCA — skipping.")
+        print("  Not enough embeddings for PCA  skipping.")
         return
 
     pca = PCA(n_components=2)
@@ -337,7 +337,7 @@ def plot_confidence_distribution(results: list):
 
     ax.set_xticks(range(len(users)))
     ax.set_xticklabels(users, fontsize=11)
-    ax.set_ylabel("Confidence Score (0–1)")
+    ax.set_ylabel("Confidence Score (01)")
     ax.set_ylim(0, 1.05)
     ax.set_title("Recognition Confidence per User\n(bar = mean, dots = individual samples)")
     ax.legend(fontsize=9)
@@ -501,7 +501,7 @@ def print_report(results: list):
     print("=" * 60)
     print("\nPer-sample breakdown:")
     for r in results:
-        status = "✓" if r["pred"] == r["true"] else "✗"
+        status = "" if r["pred"] == r["true"] else ""
         print(f"  {status}  true={r['true']:10s}  pred={r['pred']:10s}  "
               f"conf={r['confidence']:.3f}  dist={r['distance']:.3f}  ({r['method']})")
 
@@ -511,14 +511,14 @@ def print_report(results: list):
 # =============================================================================
 
 def main():
-    print("\n══════════════════════════════════════════════════")
+    print("\n")
     print("  Face Recognition Evaluation Harness")
     print(f"  Dataset : {DATASET_DIR}")
     print(f"  Outputs : {OUTPUT_DIR}")
-    print("══════════════════════════════════════════════════\n")
+    print("\n")
 
-    # ── 1. Load images ────────────────────────────────────────────────────
-    print("[1/6] Loading images …")
+    #  1. Load images 
+    print("[1/6] Loading images ")
     train_imgs = load_images(TRAIN_DIR)
     test_imgs  = load_images(TEST_DIR)
     print(f"  Train users: {list(train_imgs.keys())}  "
@@ -526,16 +526,16 @@ def main():
     print(f"  Test  users: {list(test_imgs.keys())}  "
           f"(total {sum(len(v) for v in test_imgs.values())} images)")
 
-    # ── 2. Face detection ────────────────────────────────────────────────
-    print("\n[2/6] Running face detection (MTCNN) …")
+    #  2. Face detection 
+    print("\n[2/6] Running face detection (MTCNN) ")
     train_det = run_detection(train_imgs)
     test_det  = run_detection(test_imgs)
 
-    print("  Plotting face detection grid …")
+    print("  Plotting face detection grid ")
     plot_face_detection(train_det, test_det)
 
-    # ── 3. Generate embeddings ───────────────────────────────────────────
-    print("\n[3/6] Generating FaceNet embeddings …")
+    #  3. Generate embeddings 
+    print("\n[3/6] Generating FaceNet embeddings ")
     train_emb = build_embeddings(train_det)
     test_emb  = build_embeddings(test_det)
 
@@ -547,11 +547,11 @@ def main():
         print("  Ensure MTCNN detected at least one face in train images.")
         sys.exit(1)
 
-    print("  Plotting 2-D PCA of embedding space …")
+    print("  Plotting 2-D PCA of embedding space ")
     plot_embeddings_pca(flat_train, flat_test)
 
-    # ── 4. Recognition ───────────────────────────────────────────────────
-    print("\n[4/6] Training SVM + evaluating test set …")
+    #  4. Recognition 
+    print("\n[4/6] Training SVM + evaluating test set ")
     results = run_recognition(flat_train, flat_test)
 
     if not results:
@@ -559,15 +559,15 @@ def main():
               "Check that test images have detectable faces.")
         sys.exit(1)
 
-    # ── 5. Metric plots ───────────────────────────────────────────────────
-    print("\n[5/6] Generating metric plots …")
+    #  5. Metric plots 
+    print("\n[5/6] Generating metric plots ")
     plot_confusion_matrix(results)
     plot_confidence_distribution(results)
     plot_distance_distribution(results)
     plot_metrics_summary(results)
     plot_per_sample_results(test_det, [dict(r) for r in results])
 
-    # ── 6. Console report ─────────────────────────────────────────────────
+    #  6. Console report 
     print("\n[6/6] Summary")
     print_report(results)
 

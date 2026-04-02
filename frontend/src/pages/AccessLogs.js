@@ -80,7 +80,7 @@ const AccessLogs = () => {
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="logs-empty">
-            <span className="empty-icon">📋</span>
+            <span className="empty-icon"></span>
             <p>No access logs found</p>
           </div>
         ) : (
@@ -109,12 +109,12 @@ const AccessLogs = () => {
                       </td>
                       <td>
                         <span className={`access-badge access-${accessClass}`}>
-                          {log.accessType === 'Authorized' ? '✓' : '✕'} {log.accessType}
+                          {log.accessType === 'Authorized' ? '' : ''} {log.accessType}
                         </span>
                       </td>
                       <td className="log-user">
                         <span className="user-icon">
-                          {log.accessType === 'Authorized' ? '👤' : '❓'}
+                          {log.accessType === 'Authorized' ? '' : ''}
                         </span>
                         {log.userName}
                       </td>
@@ -125,7 +125,7 @@ const AccessLogs = () => {
                       </td>
                       <td>
                         <button className="evidence-btn" title="View Evidence">
-                          📷 View
+                           View
                         </button>
                       </td>
                     </tr>

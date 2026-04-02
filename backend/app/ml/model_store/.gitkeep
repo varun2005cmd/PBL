@@ -1,8 +1,8 @@
 # model_store/
 #
 # This directory holds the trained SVM classifier artefacts:
-#   svm_classifier.pkl   — scikit-learn Pipeline (Normalizer + SVC)
-#   label_map.json       — {int → username} mapping
+#   svm_classifier.pkl    scikit-learn Pipeline (Normalizer + SVC)
+#   label_map.json        {int  username} mapping
 #
 # Both files are written automatically when POST /train is called.
 # They are intentionally NOT committed to version control

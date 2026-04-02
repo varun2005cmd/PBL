@@ -50,30 +50,30 @@ The application will automatically open in your browser at `http://localhost:300
 
 ```
 frontend/
-├── public/
-│   └── index.html           # HTML template
-├── src/
-│   ├── api/                 # API service layer
-│   │   ├── config.js       # API configuration
-│   │   ├── apiClient.js    # Axios instance
-│   │   └── services.js     # API service methods
-│   ├── components/          # Reusable components
-│   │   ├── Alert.js
-│   │   ├── Button.js
-│   │   ├── Card.js
-│   │   ├── Modal.js
-│   │   ├── Navbar.js
-│   │   └── StatCard.js
-│   ├── pages/              # Main pages
-│   │   ├── Dashboard.js
-│   │   ├── AccessLogs.js
-│   │   └── UserManagement.js
-│   ├── App.js              # Main app component
-│   ├── App.css
-│   ├── index.js            # Entry point
-│   └── index.css           # Global styles
-├── package.json
-└── README.md
+ public/
+    index.html           # HTML template
+ src/
+    api/                 # API service layer
+       config.js       # API configuration
+       apiClient.js    # Axios instance
+       services.js     # API service methods
+    components/          # Reusable components
+       Alert.js
+       Button.js
+       Card.js
+       Modal.js
+       Navbar.js
+       StatCard.js
+    pages/              # Main pages
+       Dashboard.js
+       AccessLogs.js
+       UserManagement.js
+    App.js              # Main app component
+    App.css
+    index.js            # Entry point
+    index.css           # Global styles
+ package.json
+ README.md
 ```
 
 ## Features Overview
@@ -174,7 +174,7 @@ import NewPage from './pages/NewPage';
 <Route path="/new-page" element={<NewPage />} />
 
 // In Navbar.js
-{ path: '/new-page', label: 'New Page', icon: '📄' }
+{ path: '/new-page', label: 'New Page', icon: '' }
 ```
 
 ## Building for Production
@@ -235,4 +235,4 @@ For issues or questions:
 
 ---
 
-**Happy Coding! 🚀**
+**Happy Coding! **

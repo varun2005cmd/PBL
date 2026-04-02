@@ -1,10 +1,10 @@
 # =============================================================================
 # app/ml/recognizer.py
-# Face Recognition — SVM Classifier + Euclidean Distance Validation
+# Face Recognition  SVM Classifier + Euclidean Distance Validation
 #
 # Two-stage recognition:
-#   Stage 1 – SVM classifier predicts the most likely identity.
-#   Stage 2 – Euclidean distance to the closest stored prototype embedding
+#   Stage 1  SVM classifier predicts the most likely identity.
+#   Stage 2  Euclidean distance to the closest stored prototype embedding
 #             must be below DISTANCE_THRESHOLD; otherwise the user is
 #             reported as "unknown" even if SVM made a prediction.
 #
@@ -42,7 +42,7 @@ SVM_PROB_THRESHOLD = 0.55
 
 # Cached classifier (lazy-loaded from disk)
 _svm_model: Optional[object] = None
-_label_map: Optional[Dict[int, str]] = None   # int index → name
+_label_map: Optional[Dict[int, str]] = None   # int index  name
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +74,7 @@ def recognize_user(
         return {"user": "unknown", "confidence": 0.0, "distance": 9.9, "method": "none"}
 
     # ------------------------------------------------------------------
-    # Stage 1 – nearest-prototype Euclidean distance (always available)
+    # Stage 1  nearest-prototype Euclidean distance (always available)
     # ------------------------------------------------------------------
     nn_user, nn_dist = _nearest_neighbour(embedding, prototype_embeddings)
 
@@ -87,7 +87,7 @@ def recognize_user(
         }
 
     # ------------------------------------------------------------------
-    # Stage 2 – SVM for probability estimate (if model is trained)
+    # Stage 2  SVM for probability estimate (if model is trained)
     # ------------------------------------------------------------------
     svm, label_map = _load_classifier()
     if svm is not None and label_map is not None:
@@ -101,7 +101,7 @@ def recognize_user(
                 "method":     "svm+euclidean",
             }
 
-    # SVM not available or low confidence — fall back to nearest-neighbour
+    # SVM not available or low confidence  fall back to nearest-neighbour
     confidence = max(0.0, 1.0 - (nn_dist / DISTANCE_THRESHOLD))
     return {
         "user":       nn_user,
@@ -146,6 +146,16 @@ def train_classifier(
         return {"ok": False, "classes": 0, "samples": len(X),
                 "message": "Need at least 2 samples to train."}
 
+    unique_labels = set(y_names)
+    if len(unique_labels) < 2:
+        return {
+            "ok": False, "classes": len(unique_labels), "samples": len(X),
+            "message": (
+                "Need at least 2 different enrolled users to train the SVM. "
+                "Only 1 user found. Nearest-neighbour recognition will still work."
+            ),
+        }
+
     X = np.array(X, dtype=np.float32)
 
     le = LabelEncoder()
@@ -158,7 +168,7 @@ def train_classifier(
     ])
     pipeline.fit(X, y)
 
-    # Build int→name label map
+    # Build intname label map
     label_map = {int(i): str(name) for i, name in enumerate(le.classes_)}
 
     # Persist to disk

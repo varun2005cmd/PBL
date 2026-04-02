@@ -1,6 +1,6 @@
 """
 app/routes/user_routes.py
-Flask Blueprint — User Management & Face-Recognition Authentication
+Flask Blueprint  User Management & Face-Recognition Authentication
 =====================================================================
 
 Endpoints
@@ -21,7 +21,7 @@ POST /authenticate           Main authentication endpoint.
                                - issued_at : float (from /challenge response)
                              Response: {"status", "user", "liveness", "confidence", "detail"}
 
-POST /enroll/<user_id>       Enrol a user by uploading 1–10 face images.
+POST /enroll/<user_id>       Enrol a user by uploading 110 face images.
                              Accepts: multipart form-data, field "images" (multiple files)
                              Computes FaceNet embeddings and stores them on the User record.
 
@@ -47,7 +47,35 @@ user_bp = Blueprint("user_bp", __name__)
 
 
 # =============================================================================
-# Helper — load prototype embeddings from DB into a dict
+# Helper  actuate physical hardware after an auth result (best-effort)
+# =============================================================================
+
+def _trigger_hardware(result: dict) -> None:
+    """
+    Drive the servo and LCD based on the authentication result.
+    Runs in a daemon thread so it never blocks the HTTP response.
+    Silently ignored if hardware is unavailable (dev machine / CI).
+    """
+    import threading
+
+    def _act():
+        try:
+            from app.hardware import servo, lcd
+            if result["status"] == "granted":
+                lcd.show_access_granted(result.get("user", ""))
+                servo.unlock_door()
+            else:
+                detail = result.get("detail", "Denied")[:16]
+                lcd.show_access_denied(detail)
+        except Exception as exc:
+            logger.debug("Hardware actuation skipped: %s", exc)
+
+    t = threading.Thread(target=_act, daemon=True)
+    t.start()
+
+
+# =============================================================================
+# Helper  load prototype embeddings from DB into a dict
 # =============================================================================
 
 def _load_prototype_embeddings() -> dict:
@@ -162,6 +190,9 @@ def authenticate():
     prototypes = _load_prototype_embeddings()
     result     = authenticate_user(frame, challenge, issued_at, prototypes)
 
+    # ---------- actuate hardware (non-blocking, best-effort) ----------
+    _trigger_hardware(result)
+
     # ---------- persist audit log ----------
     log = AccessLog(
         timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -201,6 +232,8 @@ def enroll_user(user_id: int):
     files = request.files.getlist("images")
     if not files:
         return jsonify({"error": "No images provided"}), 400
+    if len(files) < 3:
+        return jsonify({"error": "Minimum 3 images required for reliable enrollment"}), 400
     if len(files) > 10:
         return jsonify({"error": "Maximum 10 images per enrollment"}), 400
 
@@ -254,7 +287,7 @@ def train_model():
 
 
 # =============================================================================
-# Legacy /scan  (backward-compatible — real ML, same response shape as mock)
+# Legacy /scan  (backward-compatible  real ML, same response shape as mock)
 # =============================================================================
 
 @user_bp.route("/scan", methods=["POST"])
@@ -305,3 +338,90 @@ def scan_face():
         return jsonify({"alert": "Unknown person detected!", **scan})
 
     return jsonify(scan)
+
+
+# =============================================================================
+# Toggle user active status
+# =============================================================================
+
+@user_bp.route("/users/<int:user_id>/toggle", methods=["PUT"])
+def toggle_user(user_id: int):
+    user = db.session.get(User, user_id)
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+    user.active = not user.active
+    db.session.commit()
+    # Return "status" as the string the frontend UserManagement page reads directly
+    return jsonify({
+        "success": True,
+        "status":  "enabled" if user.active else "disabled",
+        "active":  user.active,
+        "user":    user.to_dict(),
+    })
+
+
+# =============================================================================
+# Stats endpoint  (real data from DB for the dashboard)
+# =============================================================================
+
+@user_bp.route("/stats", methods=["GET"])
+def get_stats():
+    from sqlalchemy import func
+
+    total_unlocks         = AccessLog.query.filter_by(status="granted").count()
+    unauthorized_attempts = AccessLog.query.filter_by(status="denied").count()
+    active_users          = User.query.filter_by(active=True, enrolled=True).count()
+
+    total = total_unlocks + unauthorized_attempts
+    detection_accuracy = round((total_unlocks / total * 100), 1) if total else 0.0
+
+    liveness_pass = AccessLog.query.filter_by(liveness=True).count()
+    liveness_pass_rate = round((liveness_pass / total * 100), 1) if total else 0.0
+
+    avg_conf_row = db.session.query(
+        func.avg(AccessLog.confidence)
+    ).filter(AccessLog.status == "granted").scalar()
+    avg_confidence = round(float(avg_conf_row or 0) * 100, 1)
+
+    last_unauth = (
+        AccessLog.query
+        .filter_by(status="denied")
+        .order_by(AccessLog.id.desc())
+        .first()
+    )
+
+    return jsonify({
+        "totalUnlocks":           total_unlocks,
+        "unauthorizedAttempts":   unauthorized_attempts,
+        "activeUsers":            active_users,
+        "detectionAccuracy":      detection_accuracy,
+        "livenessPassRate":       liveness_pass_rate,
+        "avgConfidence":          avg_confidence,
+        "lastUnauthorized":       last_unauth.timestamp if last_unauth else None,
+    })
+
+
+# =============================================================================
+# Camera frame endpoint  (live snapshot from USB camera for the dashboard)
+# =============================================================================
+
+@user_bp.route("/camera/frame", methods=["GET"])
+def camera_frame():
+    """
+    GET /camera/frame
+    -----------------
+    Returns the latest JPEG frame from the USB camera.
+    The React dashboard can poll this endpoint to show a live feed.
+
+    Response: JPEG image (Content-Type: image/jpeg)
+    On failure: 503 JSON error.
+    """
+    from flask import Response
+    from app.hardware.camera import capture_frame_jpeg
+
+    jpeg = capture_frame_jpeg()
+    if jpeg is None:
+        return jsonify({"error": "Camera unavailable"}), 503
+
+    return Response(jpeg, mimetype="image/jpeg")
+

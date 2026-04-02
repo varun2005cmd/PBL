@@ -1,6 +1,6 @@
 # =============================================================================
 # app/mockml.py
-# LEGACY fallback only — kept for the /scan endpoint when no image is uploaded.
+# LEGACY fallback only  kept for the /scan endpoint when no image is uploaded.
 # All real authentication now runs through app/ml/pipeline.py.
 # =============================================================================
 

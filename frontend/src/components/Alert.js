@@ -3,10 +3,10 @@ import './Alert.css';
 
 const Alert = ({ type = 'info', message, onClose }) => {
   const icons = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ'
+    success: '',
+    error: '',
+    warning: '',
+    info: ''
   };
 
   return (
@@ -15,7 +15,7 @@ const Alert = ({ type = 'info', message, onClose }) => {
       <span className="alert-message">{message}</span>
       {onClose && (
         <button className="alert-close" onClick={onClose}>
-          ×
+          
         </button>
       )}
     </div>

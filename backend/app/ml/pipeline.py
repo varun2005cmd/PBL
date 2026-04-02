@@ -14,7 +14,7 @@
 #     "status":     "granted" | "denied",
 #     "user":       "<name>" | "unknown",
 #     "liveness":   true | false,
-#     "confidence": <float 0–1>,
+#     "confidence": <float 01>,
 #     "detail":     "<human-readable explanation>"
 #   }
 #
@@ -77,7 +77,7 @@ def authenticate_user(
         }
     """
     # ------------------------------------------------------------------
-    # Stage 1 — Face Detection
+    # Stage 1  Face Detection
     # ------------------------------------------------------------------
     detection = detect_face(frame)
 
@@ -90,7 +90,7 @@ def authenticate_user(
     logger.debug("Face detected. MTCNN confidence=%.3f", det_conf)
 
     # ------------------------------------------------------------------
-    # Stage 2 — Liveness Check
+    # Stage 2  Liveness Check
     # ------------------------------------------------------------------
     liveness_result = check_liveness(
         frame=frame,
@@ -106,10 +106,10 @@ def authenticate_user(
             liveness=False,
         )
 
-    logger.debug("Liveness passed. Yaw=%.1f°", liveness_result["yaw"])
+    logger.debug("Liveness passed. Yaw=%.1f", liveness_result["yaw"])
 
     # ------------------------------------------------------------------
-    # Stage 3 — Embedding Generation
+    # Stage 3  Embedding Generation
     # ------------------------------------------------------------------
     embedding = generate_embedding(face_crop)
 
@@ -117,7 +117,7 @@ def authenticate_user(
         return _denied("embedding_fail", "Could not generate face embedding.", liveness=True)
 
     # ------------------------------------------------------------------
-    # Stage 4 — Identity Recognition
+    # Stage 4  Identity Recognition
     # ------------------------------------------------------------------
     recognition = recognize_user(embedding, prototype_embeddings)
     user       = recognition["user"]
@@ -175,7 +175,7 @@ def enroll_user(
     """
     Compute embeddings for a list of enrollment frames for a new user.
 
-    Typically called with 3–10 frames captured during on-boarding.
+    Typically called with 310 frames captured during on-boarding.
     The caller is responsible for persisting the returned embeddings to DB.
 
     Parameters

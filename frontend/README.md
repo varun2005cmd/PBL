@@ -4,11 +4,11 @@ IoT-Based Smart Door Security System with Face Recognition - Admin Panel
 
 ## Features
 
-- 🚪 Real-time door status monitoring
-- 🔐 Manual lock/unlock controls
-- 📊 Access logs and analytics
-- 👥 User management
-- 🚨 Intrusion detection alerts
+-  Real-time door status monitoring
+-  Manual lock/unlock controls
+-  Access logs and analytics
+-  User management
+-  Intrusion detection alerts
 
 ## Tech Stack
 
@@ -46,12 +46,12 @@ Default: `http://localhost:5000/api`
 
 ```
 src/
-  ├── api/              # API service layer
-  ├── components/       # Reusable components
-  ├── pages/           # Main pages
-  ├── styles/          # CSS styles
-  ├── App.js           # Main app component
-  └── index.js         # Entry point
+   api/              # API service layer
+   components/       # Reusable components
+   pages/           # Main pages
+   styles/          # CSS styles
+   App.js           # Main app component
+   index.js         # Entry point
 ```
 
 ## Available Scripts

@@ -19,7 +19,7 @@ function App() {
           </Routes>
         </main>
         <footer className="app-footer">
-          <p>© 2026 Smart Door Security System. All rights reserved.</p>
+          <p> 2026 Smart Door Security System. All rights reserved.</p>
         </footer>
       </div>
     </Router>

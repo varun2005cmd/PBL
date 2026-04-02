@@ -6,15 +6,15 @@ const Navbar = () => {
   const location = useLocation();
 
   const navItems = [
-    { path: '/', label: 'Dashboard', icon: '🏠' },
-    { path: '/logs', label: 'Access Logs', icon: '📋' },
-    { path: '/users', label: 'Users', icon: '👥' }
+    { path: '/', label: 'Dashboard', icon: '' },
+    { path: '/logs', label: 'Access Logs', icon: '' },
+    { path: '/users', label: 'Users', icon: '' }
   ];
 
   return (
     <nav className="navbar">
       <div className="navbar-brand">
-        <span className="navbar-icon">🔐</span>
+        <span className="navbar-icon"></span>
         <span className="navbar-title">Smart Door Security</span>
       </div>
       <div className="navbar-menu">

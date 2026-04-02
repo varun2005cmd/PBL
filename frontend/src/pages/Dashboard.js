@@ -9,31 +9,31 @@ import './Dashboard.css';
 
 const PIPELINE_STEPS = [
   {
-    icon: '📸',
+    icon: '',
     label: 'Face Detection',
-    desc: 'MTCNN detects face + 5 landmarks in real-time',
+    desc: 'MediaPipe detects face + 468 landmarks in real-time',
     color: '#667eea',
   },
   {
-    icon: '👁️',
+    icon: '',
     label: 'Liveness Check',
     desc: 'Head-turn challenge (LEFT / RIGHT) via solvePnP yaw',
     color: '#f093fb',
   },
   {
-    icon: '🧠',
+    icon: '',
     label: 'Embedding',
     desc: 'FaceNet generates 512-D biometric embedding',
     color: '#4facfe',
   },
   {
-    icon: '🔍',
+    icon: '',
     label: 'Recognition',
     desc: 'SVM + Euclidean distance validates identity',
     color: '#43e97b',
   },
   {
-    icon: '✅',
+    icon: '',
     label: 'Decision',
     desc: 'Access granted or denied with confidence score',
     color: '#fa8231',
@@ -160,7 +160,7 @@ const Dashboard = () => {
   };
 
   const formatTimeAgo = (ts) => {
-    if (!ts) return '—';
+    if (!ts) return '';
     const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 60000);
     if (diff < 1) return 'Just now';
     if (diff < 60) return `${diff}m ago`;
@@ -171,7 +171,7 @@ const Dashboard = () => {
 
   return (
     <div className="dashboard">
-      {/* ── Header ─────────────────────────────────────────────── */}
+      {/*  Header  */}
       <div className="dashboard-header">
         <div className="header-left">
           <h1>Security Dashboard</h1>
@@ -190,27 +190,27 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* ── Alerts ─────────────────────────────────────────────── */}
+      {/*  Alerts  */}
       {alert && (
         <Alert type={alert.type} message={alert.message} onClose={() => setAlert(null)} />
       )}
       {hasRecentIntrusion() && (
         <Alert
           type="error"
-          message={`⚠️ INTRUSION ALERT: Unauthorized access attempt detected at ${new Date(stats.lastUnauthorized).toLocaleTimeString()}`}
+          message={` INTRUSION ALERT: Unauthorized access attempt detected at ${new Date(stats.lastUnauthorized).toLocaleTimeString()}`}
         />
       )}
 
-      {/* ── Top Stats Row ───────────────────────────────────────── */}
+      {/*  Top Stats Row  */}
       <div className="stats-row">
-        <StatCard title="Total Unlocks"         value={stats.totalUnlocks}          icon="🔓" variant="primary" trend="Successful authentications" />
-        <StatCard title="Security Incidents"    value={stats.unauthorizedAttempts}  icon="⚠️" variant="danger"  trend="Unauthorized attempts" />
-        <StatCard title="Enrolled Users"        value={stats.activeUsers}           icon="👥" variant="success" trend="Active personnel" />
-        <StatCard title="Detection Accuracy"    value={`${stats.detectionAccuracy ?? 98.6}%`} icon="🎯" variant="info" trend="MTCNN face detection" />
-        <StatCard title="Avg Confidence"        value={`${stats.avgConfidence ?? 94.1}%`}     icon="🧠" variant="warning" trend="Recognition confidence" />
+        <StatCard title="Total Unlocks"         value={stats.totalUnlocks}          icon="" variant="primary" trend="Successful authentications" />
+        <StatCard title="Security Incidents"    value={stats.unauthorizedAttempts}  icon="" variant="danger"  trend="Unauthorized attempts" />
+        <StatCard title="Enrolled Users"        value={stats.activeUsers}           icon="" variant="success" trend="Active personnel" />
+        <StatCard title="Detection Accuracy"    value={`${stats.detectionAccuracy ?? 98.6}%`} icon="" variant="info" trend="MTCNN face detection" />
+        <StatCard title="Avg Confidence"        value={`${stats.avgConfidence ?? 94.1}%`}     icon="" variant="warning" trend="Recognition confidence" />
       </div>
 
-      {/* ── Main Grid ───────────────────────────────────────────── */}
+      {/*  Main Grid  */}
       <div className="dashboard-main-grid">
 
         {/* Door Control */}
@@ -219,20 +219,20 @@ const Dashboard = () => {
             <div className="door-indicator-neutral">
               <div className="door-info">
                 <div className={`door-icon-circle ${doorStatus === 'unlocked' ? 'door-icon-open' : ''}`}>
-                  {doorStatus === 'locked' ? '🔒' : '🔓'}
+                  {doorStatus === 'locked' ? '' : ''}
                 </div>
                 <div className="door-text">
                   <div className="door-title">Current State</div>
                   <div className={`door-badge ${doorStatus === 'locked' ? 'badge-locked' : 'badge-unlocked'}`}>
-                    {doorStatus === 'locked' ? '🔴 Locked' : '🟢 Unlocked'}
+                    {doorStatus === 'locked' ? ' Locked' : ' Unlocked'}
                   </div>
                   <div className="door-meta">Last updated: {currentTime.toLocaleTimeString()}</div>
                 </div>
               </div>
               <div className="door-controls">
-                <Button variant="success"   size="large" onClick={handleUnlock}                        disabled={loading || doorStatus === 'unlocked'} fullWidth>🔓 Unlock</Button>
-                <Button variant="secondary" size="large" onClick={handleLock}                          disabled={loading || doorStatus === 'locked'}   fullWidth>🔒 Lock</Button>
-                <Button variant="danger"    size="large" onClick={() => setShowEmergencyModal(true)}   disabled={loading}                             fullWidth>⚡ Emergency Unlock</Button>
+                <Button variant="success"   size="large" onClick={handleUnlock}                        disabled={loading || doorStatus === 'unlocked'} fullWidth> Unlock</Button>
+                <Button variant="secondary" size="large" onClick={handleLock}                          disabled={loading || doorStatus === 'locked'}   fullWidth> Lock</Button>
+                <Button variant="danger"    size="large" onClick={() => setShowEmergencyModal(true)}   disabled={loading}                             fullWidth> Emergency Unlock</Button>
               </div>
             </div>
           </div>
@@ -247,13 +247,13 @@ const Dashboard = () => {
               recentLogs.map((log, i) => (
                 <div key={log.id || i} className={`activity-item ${log.accessType === 'Authorized' ? 'activity-granted' : 'activity-denied'}`}>
                   <div className="activity-icon">
-                    {log.accessType === 'Authorized' ? '✅' : '🚫'}
+                    {log.accessType === 'Authorized' ? '' : ''}
                   </div>
                   <div className="activity-body">
                     <div className="activity-user">{log.userName || 'Unknown'}</div>
                     <div className="activity-detail">
-                      {log.accessType} · {log.confidence != null ? `${log.confidence}% confidence` : ''}
-                      {log.liveness != null ? (log.liveness ? ' · Liveness ✓' : ' · Liveness ✗') : ''}
+                      {log.accessType}  {log.confidence != null ? `${log.confidence}% confidence` : ''}
+                      {log.liveness != null ? (log.liveness ? '  Liveness ' : '  Liveness ') : ''}
                     </div>
                   </div>
                   <div className="activity-time">{formatTimeAgo(log.timestamp)}</div>
@@ -300,14 +300,14 @@ const Dashboard = () => {
             </div>
           </div>
           <div className="health-status-row">
-            <div className="health-chip chip-green">🟢 ML Pipeline Active</div>
-            <div className="health-chip chip-green">🟢 Database Connected</div>
-            <div className="health-chip chip-red">🔴 Camera Disconnected</div>
+            <div className="health-chip chip-green"> ML Pipeline Active</div>
+            <div className="health-chip chip-green"> Database Connected</div>
+            <div className="health-chip chip-red"> Camera Disconnected</div>
           </div>
         </Card>
       </div>
 
-      {/* ── Authentication Pipeline ──────────────────────────────── */}
+      {/*  Authentication Pipeline  */}
       <Card title="Authentication Pipeline" className="pipeline-card">
         <p className="pipeline-desc">
           Every access attempt passes through all 5 stages sequentially. Access is granted only
@@ -325,23 +325,23 @@ const Dashboard = () => {
                 <div className="pipeline-step-desc">{step.desc}</div>
               </div>
               {i < PIPELINE_STEPS.length - 1 && (
-                <div className="pipeline-arrow">→</div>
+                <div className="pipeline-arrow"></div>
               )}
             </React.Fragment>
           ))}
         </div>
       </Card>
 
-      {/* ── Emergency Unlock Modal ───────────────────────────────── */}
+      {/*  Emergency Unlock Modal  */}
       <Modal
         isOpen={showEmergencyModal}
         onClose={() => { setShowEmergencyModal(false); setPin(''); }}
-        title="⚡ Emergency Unlock"
+        title=" Emergency Unlock"
         size="small"
       >
         <div className="emergency-modal">
           <p className="emergency-warning">
-            ⚠️ This action will unlock the door immediately. Enter PIN to confirm.
+             This action will unlock the door immediately. Enter PIN to confirm.
           </p>
           <input
             type="password"

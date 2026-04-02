@@ -1,5 +1,5 @@
 /* ============================================================
-   Dashboard.css — enriched layout
+   Dashboard.css  enriched layout
    ============================================================ */
 
 .dashboard {
@@ -8,7 +8,7 @@
   margin: 0 auto;
 }
 
-/* ── Header ─────────────────────────────────────────────────── */
+/*  Header  */
 .dashboard-header {
   display: flex;
   justify-content: space-between;
@@ -75,7 +75,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── Top Stats Row (5 cards) ─────────────────────────────────── */
+/*  Top Stats Row (5 cards)  */
 .stats-row {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -83,7 +83,7 @@
   margin-bottom: 24px;
 }
 
-/* ── Main Grid: door | activity | health ────────────────────── */
+/*  Main Grid: door | activity | health  */
 .dashboard-main-grid {
   display: grid;
   grid-template-columns: 300px 1fr 1fr;
@@ -92,7 +92,7 @@
   align-items: start;
 }
 
-/* ── Door Control ────────────────────────────────────────────── */
+/*  Door Control  */
 .door-indicator-neutral {
   display: flex;
   flex-direction: column;
@@ -162,7 +162,7 @@
   gap: 10px;
 }
 
-/* ── Recent Activity Feed ────────────────────────────────────── */
+/*  Recent Activity Feed  */
 .activity-feed {
   display: flex;
   flex-direction: column;
@@ -205,7 +205,7 @@
 .activity-detail { font-size: 12px; color: #6b7280; margin-top: 2px; }
 .activity-time   { font-size: 11px; color: #9ca3af; white-space: nowrap; flex-shrink: 0; }
 
-/* ── System Health ───────────────────────────────────────────── */
+/*  System Health  */
 .health-grid {
   display: flex;
   flex-direction: column;
@@ -267,7 +267,7 @@
 .chip-red   { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; text-decoration: line-through; opacity: 0.85; }
 .chip-yellow { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
 
-/* ── Authentication Pipeline ─────────────────────────────────── */
+/*  Authentication Pipeline  */
 .pipeline-desc {
   font-size: 14px;
   color: #6b7280;
@@ -331,7 +331,7 @@
   margin-top: -24px;
 }
 
-/* ── Emergency Modal ─────────────────────────────────────────── */
+/*  Emergency Modal  */
 .emergency-modal { display: flex; flex-direction: column; gap: 20px; }
 
 .emergency-warning {
@@ -359,7 +359,7 @@
 .emergency-pin-input:focus { outline: none; border-color: #667eea; }
 .emergency-actions { display: flex; gap: 12px; }
 
-/* ── Responsive ──────────────────────────────────────────────── */
+/*  Responsive  */
 @media (max-width: 1200px) {
   .stats-row               { grid-template-columns: repeat(3, 1fr); }
   .dashboard-main-grid     { grid-template-columns: 1fr 1fr; }

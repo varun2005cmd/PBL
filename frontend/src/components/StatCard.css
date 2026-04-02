@@ -49,7 +49,7 @@
   color: #9ca3af;
 }
 
-/* ── Variants ─────────────────────────────── */
+/*  Variants  */
 .stat-card-primary { border-left-color: #667eea; }
 .stat-card-danger  { border-left-color: #ef4444; }
 .stat-card-success { border-left-color: #22c55e; }

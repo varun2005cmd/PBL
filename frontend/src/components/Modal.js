@@ -13,7 +13,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => {
         <div className="modal-header">
           <h2 className="modal-title">{title}</h2>
           <button className="modal-close" onClick={onClose}>
-            ×
+            
           </button>
         </div>
         <div className="modal-body">{children}</div>

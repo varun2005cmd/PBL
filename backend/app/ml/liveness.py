@@ -1,13 +1,13 @@
 # =============================================================================
 # app/ml/liveness.py
-# Liveness Detection — Active Challenge-Response (HEAD TURN)
+# Liveness Detection  Active Challenge-Response (HEAD TURN)
 #
 # Strategy:
 #   - Use OpenCV solvePnP with a generic 3-D face model to estimate head pose.
 #   - Extract the YAW angle from the rotation vector.
 #   - Challenge is either "LEFT" or "RIGHT".
-#       LEFT  → user must turn head so yaw < -20 degrees
-#       RIGHT → user must turn head so yaw > +20 degrees
+#       LEFT   user must turn head so yaw < -20 degrees
+#       RIGHT  user must turn head so yaw > +20 degrees
 #   - A 2-second time window is enforced by the caller passing in
 #     `challenge_issued_at` (Unix timestamp); challenge fails if
 #     time.time() - challenge_issued_at > 2.
@@ -50,7 +50,7 @@ _MODEL_POINTS_3D = np.array(
 
 YAW_LEFT_THRESHOLD  = -20.0   # degrees
 YAW_RIGHT_THRESHOLD = +20.0   # degrees
-CHALLENGE_TIMEOUT   =   2.0   # seconds
+CHALLENGE_TIMEOUT   =  15.0   # seconds (covers Pi ML processing time ~8-12 s)
 
 
 def check_liveness(
@@ -146,25 +146,31 @@ def check_liveness(
         return {"passed": False, "yaw": 0.0, "reason": "PnP solver failed."}
 
     # ------------------------------------------------------------------
-    # 5. Convert rotation vector → Euler angles, extract yaw
+    # 5. Convert rotation vector  Euler angles, extract yaw
     # ------------------------------------------------------------------
     yaw_deg = _rotation_vector_to_yaw(rvec)
 
     # ------------------------------------------------------------------
     # 6. Evaluate challenge
     # ------------------------------------------------------------------
-    if challenge == "LEFT"  and yaw_deg < YAW_LEFT_THRESHOLD:
+    # In OpenCV camera frame: turning head LEFT  → yaw > +threshold
+    #                          turning head RIGHT → yaw < -threshold
+    # If your setup produces the opposite sign, negate yaw_deg here.
+    if challenge == "LEFT"  and yaw_deg > abs(YAW_LEFT_THRESHOLD):
         return {"passed": True,  "yaw": yaw_deg, "reason": "Liveness confirmed (left turn)."}
-    if challenge == "RIGHT" and yaw_deg > YAW_RIGHT_THRESHOLD:
+    if challenge == "RIGHT" and yaw_deg < -abs(YAW_RIGHT_THRESHOLD):
         return {"passed": True,  "yaw": yaw_deg, "reason": "Liveness confirmed (right turn)."}
 
+    required = (
+        f"> +{abs(YAW_LEFT_THRESHOLD):.0f}°" if challenge == "LEFT"
+        else f"< -{abs(YAW_RIGHT_THRESHOLD):.0f}°"
+    )
     return {
         "passed": False,
         "yaw":    yaw_deg,
         "reason": (
             f"Insufficient head turn for '{challenge}' challenge. "
-            f"Yaw = {yaw_deg:.1f}° "
-            f"(required {'< ' + str(YAW_LEFT_THRESHOLD) if challenge == 'LEFT' else '> ' + str(YAW_RIGHT_THRESHOLD)}°)."
+            f"Yaw = {yaw_deg:.1f}° (required {required})."
         ),
     }
 
@@ -204,13 +210,24 @@ def _rotation_vector_to_yaw(rvec: np.ndarray) -> float:
     """
     Convert a Rodrigues rotation vector to a yaw (heading) angle in degrees.
 
-    Convention: positive yaw = head turned RIGHT, negative = LEFT.
+    Convention used here:
+      Positive yaw  = subject's nose pointing to image-RIGHT  (LEFT challenge)
+      Negative yaw  = subject's nose pointing to image-LEFT   (RIGHT challenge)
+
+    Note: cv2.RQDecomp3x3 returns (rx, ry, rz) where ry is the Y-axis
+    (yaw) rotation in degrees.  OpenCV's camera frame has +Y pointing DOWN,
+    so turning head RIGHT yields a NEGATIVE ry.  The thresholds at the call
+    site must match this sign:
+        LEFT  challenge  -> yaw > +YAW_LEFT_THRESHOLD  (absolute, see below)
+        RIGHT challenge  -> yaw < -YAW_RIGHT_THRESHOLD
+    Both thresholds are set symmetrically to ±20°.
+
+    If your camera produces the opposite sign, swap the two threshold checks
+    in check_liveness() or negate the returned value here.
     """
     rot_mat, _ = cv2.Rodrigues(rvec)
-
-    # Decompose using cv2.RQDecomp3x3 → returns angles in degrees
+    # RQDecomp3x3 returns (angles_deg, Qx, Qy, Qz, Qx*Qy, Qx*Qy*Qz)
     angles, _, _, _, _, _ = cv2.RQDecomp3x3(rot_mat)
-
-    # angles = (pitch, yaw, roll) in degrees
+    # angles[0]=pitch, angles[1]=yaw, angles[2]=roll  (all in degrees)
     yaw_deg = angles[1]
     return float(yaw_deg)

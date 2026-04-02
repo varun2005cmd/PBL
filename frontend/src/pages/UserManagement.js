@@ -49,6 +49,7 @@ const UserManagement = () => {
   };
 
   const formatLastAccess = (timestamp) => {
+    if (!timestamp) return 'Never';
     const date = new Date(timestamp);
     const now = new Date();
     const diffMs = now - date;
@@ -80,12 +81,12 @@ const UserManagement = () => {
         </div>
         <div className="users-summary">
           <div className="summary-item summary-enabled">
-            <span className="summary-icon">✓</span>
+            <span className="summary-icon"></span>
             <span className="summary-count">{statusCounts.enabled}</span>
             <span className="summary-label">Enabled</span>
           </div>
           <div className="summary-item summary-disabled">
-            <span className="summary-icon">✕</span>
+            <span className="summary-icon"></span>
             <span className="summary-count">{statusCounts.disabled}</span>
             <span className="summary-label">Disabled</span>
           </div>
@@ -108,7 +109,7 @@ const UserManagement = () => {
           </div>
         ) : users.length === 0 ? (
           <div className="users-empty">
-            <span className="empty-icon">👥</span>
+            <span className="empty-icon"></span>
             <p>No users found</p>
           </div>
         ) : (
@@ -116,7 +117,7 @@ const UserManagement = () => {
             {users.map((user) => (
               <div key={user.id} className={`user-card user-${user.status}`}>
                 <div className="user-avatar">
-                  <span className="avatar-icon">👤</span>
+                  <span className="avatar-icon"></span>
                 </div>
                 <div className="user-info">
                   <h3 className="user-name">{user.name}</h3>
@@ -125,19 +126,19 @@ const UserManagement = () => {
                     <div className="user-role-badge">{user.role}</div>
                   )}
                   <div className="user-last-access">
-                    <span className="access-icon">🕐</span>
+                    <span className="access-icon"></span>
                     Last access: {formatLastAccess(user.lastAccess)}
                   </div>
                   <div className="user-enrolled-status">
                     {user.enrolled
-                      ? <span className="enrolled-yes">✅ Face Enrolled</span>
-                      : <span className="enrolled-no">⚠️ Not Enrolled</span>}
+                      ? <span className="enrolled-yes"> Face Enrolled</span>
+                      : <span className="enrolled-no"> Not Enrolled</span>}
                   </div>
                 </div>
                 <div className="user-controls">
                   <div className="status-indicator">
                     <span className={`status-badge status-${user.status}`}>
-                      {user.status === 'enabled' ? '✓ Enabled' : '✕ Disabled'}
+                      {user.status === 'enabled' ? ' Enabled' : ' Disabled'}
                     </span>
                   </div>
                   <label className="toggle-switch">

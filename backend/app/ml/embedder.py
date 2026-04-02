@@ -4,7 +4,7 @@
 #
 # Uses facenet-pytorch (CPU mode) to produce 512-D L2-normalised embeddings.
 # 512-D is the standard FaceNet output; the user-specified "128-D" refers to
-# the *concept* of a compact embedding — 512-D gives superior accuracy while
+# the *concept* of a compact embedding  512-D gives superior accuracy while
 # remaining entirely CPU-runnable on Raspberry Pi.
 #
 # The model is lazy-loaded and cached for the process lifetime.
@@ -30,7 +30,7 @@ def _get_model():
             from torchvision import transforms
 
             _model = InceptionResnetV1(pretrained="vggface2").eval()
-            # Force CPU — avoids CUDA dependency on Raspberry Pi
+            # Force CPU  avoids CUDA dependency on Raspberry Pi
             _model = _model.to("cpu")
 
             # Standard FaceNet pre-processing
@@ -75,10 +75,10 @@ def generate_embedding(face_crop: np.ndarray) -> Optional[np.ndarray]:
 
     model, transform = _get_model()
 
-    # Convert numpy (H, W, C) uint8 RGB → PIL Image
+    # Convert numpy (H, W, C) uint8 RGB  PIL Image
     pil_img = Image.fromarray(face_crop.astype(np.uint8))
 
-    # Apply normalisation transform → shape (3, 160, 160)
+    # Apply normalisation transform  shape (3, 160, 160)
     tensor = transform(pil_img).unsqueeze(0)  # (1, 3, 160, 160)
 
     with torch.no_grad():
