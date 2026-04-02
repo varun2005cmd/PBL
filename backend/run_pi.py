@@ -49,9 +49,9 @@ def main():
     logger.info("Warming up ML models (this may take 20-40 s on first run) …")
     try:
         from app.ml.face_detector import warmup as detector_warmup
-        from app.ml.embedder import _get_model as _load_facenet
+        from app.ml.embedder import warmup as embedder_warmup
         detector_warmup()
-        _load_facenet()        # downloads weights if not cached, then holds in RAM
+        embedder_warmup()
         logger.info("ML models ready.")
     except Exception as exc:
         logger.warning("Model warmup warning (non-fatal): %s", exc)

@@ -4,7 +4,7 @@ import StatCard from '../components/StatCard';
 import Modal from '../components/Modal';
 import Alert from '../components/Alert';
 import Card from '../components/Card';
-import { doorService, statsService, logsService } from '../api/services';
+import { doorService, statsService, logsService, hardwareService } from '../api/services';
 import './Dashboard.css';
 
 const PIPELINE_STEPS = [
@@ -42,6 +42,7 @@ const PIPELINE_STEPS = [
 
 const Dashboard = () => {
   const [doorStatus, setDoorStatus] = useState('locked');
+  const [hwStatus, setHwStatus] = useState({ camera: null, servo: null, lcd: null });
   const [stats, setStats] = useState({
     totalUnlocks: 0,
     unauthorizedAttempts: 0,
@@ -53,7 +54,6 @@ const Dashboard = () => {
   });
   const [recentLogs, setRecentLogs] = useState([]);
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
-  const [pin, setPin] = useState('');
   const [alert, setAlert] = useState(null);
   const [loading, setLoading] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -62,10 +62,12 @@ const Dashboard = () => {
     fetchDoorStatus();
     fetchStats();
     fetchRecentLogs();
+    fetchHwStatus();
     const dataInterval = setInterval(() => {
       fetchDoorStatus();
       fetchStats();
       fetchRecentLogs();
+      fetchHwStatus();
     }, 5000);
     const clockInterval = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => {
@@ -80,6 +82,19 @@ const Dashboard = () => {
       setDoorStatus(response.status);
     } catch (error) {
       console.error('Failed to fetch door status:', error);
+    }
+  };
+
+  const fetchHwStatus = async () => {
+    try {
+      const response = await hardwareService.getStatus();
+      setHwStatus({
+        camera: response.camera || null,
+        servo: response.servo || null,
+        lcd: response.lcd || null,
+      });
+    } catch (error) {
+      console.error('Failed to fetch hardware status:', error);
     }
   };
 
@@ -134,12 +149,11 @@ const Dashboard = () => {
   const handleEmergencyUnlock = async () => {
     setLoading(true);
     try {
-      const response = await doorService.emergencyUnlock(pin);
+      const response = await doorService.unlock();
       if (response.success) {
         setDoorStatus('unlocked');
         showAlert('warning', 'Emergency unlock activated!');
         setShowEmergencyModal(false);
-        setPin('');
       }
     } catch (error) {
       showAlert('error', 'Emergency unlock failed');
@@ -206,8 +220,8 @@ const Dashboard = () => {
         <StatCard title="Total Unlocks"         value={stats.totalUnlocks}          icon="" variant="primary" trend="Successful authentications" />
         <StatCard title="Security Incidents"    value={stats.unauthorizedAttempts}  icon="" variant="danger"  trend="Unauthorized attempts" />
         <StatCard title="Enrolled Users"        value={stats.activeUsers}           icon="" variant="success" trend="Active personnel" />
-        <StatCard title="Detection Accuracy"    value={`${stats.detectionAccuracy ?? 98.6}%`} icon="" variant="info" trend="MTCNN face detection" />
-        <StatCard title="Avg Confidence"        value={`${stats.avgConfidence ?? 94.1}%`}     icon="" variant="warning" trend="Recognition confidence" />
+        <StatCard title="Detection Accuracy"    value={`${stats.detectionAccuracy ?? 0}%`} icon="" variant="info" trend="MediaPipe face detection" />
+        <StatCard title="Avg Confidence"        value={`${stats.avgConfidence ?? 0}%`}     icon="" variant="warning" trend="Recognition confidence" />
       </div>
 
       {/*  Main Grid  */}
@@ -302,7 +316,15 @@ const Dashboard = () => {
           <div className="health-status-row">
             <div className="health-chip chip-green"> ML Pipeline Active</div>
             <div className="health-chip chip-green"> Database Connected</div>
-            <div className="health-chip chip-red"> Camera Disconnected</div>
+            <div className={`health-chip ${hwStatus.camera === null ? 'chip-yellow' : hwStatus.camera === 'connected' ? 'chip-green' : 'chip-red'}`}>
+              {hwStatus.camera === null ? ' Camera Checking…' : hwStatus.camera === 'connected' ? ' Camera Connected' : ' Camera Disconnected'}
+            </div>
+            <div className={`health-chip ${hwStatus.servo === null ? 'chip-yellow' : hwStatus.servo === 'connected' ? 'chip-green' : 'chip-red'}`}>
+              {hwStatus.servo === null ? ' Servo Checking…' : hwStatus.servo === 'connected' ? ' Servo Connected' : ' Servo Disconnected'}
+            </div>
+            <div className={`health-chip ${hwStatus.lcd === null ? 'chip-yellow' : hwStatus.lcd === 'connected' ? 'chip-green' : 'chip-red'}`}>
+              {hwStatus.lcd === null ? ' LCD Checking…' : hwStatus.lcd === 'connected' ? ' LCD Connected' : ' LCD Disconnected'}
+            </div>
           </div>
         </Card>
       </div>
@@ -335,25 +357,17 @@ const Dashboard = () => {
       {/*  Emergency Unlock Modal  */}
       <Modal
         isOpen={showEmergencyModal}
-        onClose={() => { setShowEmergencyModal(false); setPin(''); }}
+        onClose={() => setShowEmergencyModal(false)}
         title=" Emergency Unlock"
         size="small"
       >
         <div className="emergency-modal">
           <p className="emergency-warning">
-             This action will unlock the door immediately. Enter PIN to confirm.
+             This will unlock the door immediately. Confirm to proceed.
           </p>
-          <input
-            type="password"
-            className="emergency-pin-input"
-            placeholder="Enter PIN"
-            value={pin}
-            onChange={(e) => setPin(e.target.value)}
-            maxLength="6"
-          />
           <div className="emergency-actions">
-            <Button variant="secondary" onClick={() => { setShowEmergencyModal(false); setPin(''); }} fullWidth>Cancel</Button>
-            <Button variant="warning"   onClick={handleEmergencyUnlock} disabled={loading || pin.length < 4} fullWidth>Confirm Unlock</Button>
+            <Button variant="secondary" onClick={() => setShowEmergencyModal(false)} fullWidth>Cancel</Button>
+            <Button variant="warning"   onClick={handleEmergencyUnlock} disabled={loading} fullWidth>Confirm Unlock</Button>
           </div>
         </div>
       </Modal>

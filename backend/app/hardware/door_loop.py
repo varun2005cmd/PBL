@@ -41,7 +41,7 @@ def run_door_loop(app) -> None:
     """
     from app.hardware import camera, lcd, servo
     from app.ml.pipeline     import authenticate_user
-    from app.ml.liveness     import generate_challenge
+    from app.ml.liveness     import generate_challenge, CHALLENGE_TIMEOUT
     from app.models import db
     from app.models.log  import AccessLog
     from app.routes.user_routes import _load_prototype_embeddings
@@ -87,10 +87,12 @@ def _single_cycle(app, camera, lcd, servo, db, AccessLog,
     """Execute one full authentication cycle."""
 
     # ------------------------------------------------------------------
-    # Step 1: Wait for a face to appear
+    # Step 1: Wait for a face to appear (CPU-friendly: 300 ms poll interval)
+    # Update the LCD periodically so the user knows the system is alive.
     # ------------------------------------------------------------------
     logger.debug("Waiting for face...")
-    frame_with_face = camera.wait_for_face(timeout=30.0, poll_interval=0.15)
+    lcd.show_idle()
+    frame_with_face = camera.wait_for_face(timeout=30.0, poll_interval=0.3)
 
     if frame_with_face is None:
         # Nothing detected; show idle again and loop
@@ -105,9 +107,11 @@ def _single_cycle(app, camera, lcd, servo, db, AccessLog,
     logger.info("Liveness challenge issued: %s", challenge)
     lcd.show_challenge(challenge)
 
-    # Give the user time to perform the head turn before capture
-    # (Pi ML inference adds ~8-12 s; the liveness timeout accounts for this)
-    time.sleep(3.0)
+    # Give the user time to perform the head turn before capture.
+    # Wait for half the challenge timeout so the user has plenty of time
+    # and we still capture before the timeout elapses.
+    wait_before_capture = min(4.0, CHALLENGE_TIMEOUT * 0.3)
+    time.sleep(wait_before_capture)
 
     # ------------------------------------------------------------------
     # Step 3: Capture the response frame

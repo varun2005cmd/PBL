@@ -8,9 +8,9 @@
 #   - Challenge is either "LEFT" or "RIGHT".
 #       LEFT   user must turn head so yaw < -20 degrees
 #       RIGHT  user must turn head so yaw > +20 degrees
-#   - A 2-second time window is enforced by the caller passing in
+#   - A time window is enforced by the caller passing in
 #     `challenge_issued_at` (Unix timestamp); challenge fails if
-#     time.time() - challenge_issued_at > 2.
+#     time.time() - challenge_issued_at > CHALLENGE_TIMEOUT (currently 15 s).
 # =============================================================================
 
 import time

@@ -40,13 +40,14 @@ class User(db.Model):
 
     def to_dict(self) -> dict:
         return {
-            "id":         self.id,
-            "name":       self.name,
-            "active":     self.active,
-            "enrolled":   self.enrolled,
+            "id":              self.id,
+            "name":            self.name,
+            "active":          self.active,
+            "enrolled":        self.enrolled,
+            "embeddingsCount": len(self.get_embeddings()),
             # Fields expected by the frontend UserManagement page:
-            "status":     "enabled" if self.active else "disabled",
-            "userId":     f"usr_{self.id:05d}",
-            "role":       "User",
-            "lastAccess": None,   # not tracked per-user; logs hold per-attempt data
+            "status":          "enabled" if self.active else "disabled",
+            "userId":          f"usr_{self.id:05d}",
+            "role":            "User",
+            "lastAccess":      None,   # not tracked per-user; logs hold per-attempt data
         }

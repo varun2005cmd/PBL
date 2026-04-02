@@ -4,7 +4,7 @@
 #
 # authenticate_user() is the single entry-point used by the REST endpoint.
 # It orchestrates:
-#   1. Face detection          (MTCNN)
+#   1. Face detection          (MediaPipe FaceLandmarker Tasks API)
 #   2. Liveness verification   (solvePnP yaw-based challenge-response)
 #   3. Embedding generation    (FaceNet / InceptionResnetV1)
 #   4. Identity recognition    (SVM + Euclidean distance)
@@ -87,17 +87,22 @@ def authenticate_user(
     face_crop  = detection["face_crop"]    # (160, 160, 3) RGB
     landmarks  = detection["landmarks"]
     det_conf   = detection["confidence"]
-    logger.debug("Face detected. MTCNN confidence=%.3f", det_conf)
+    logger.debug("Face detected. MediaPipe confidence=%.3f", det_conf)
 
     # ------------------------------------------------------------------
     # Stage 2  Liveness Check
+    # Set NO_LIVENESS=1 env var to skip liveness (useful for quick testing)
     # ------------------------------------------------------------------
-    liveness_result = check_liveness(
-        frame=frame,
-        challenge=challenge,
-        landmarks=landmarks,
-        challenge_issued_at=challenge_issued_at,
-    )
+    import os as _os
+    if _os.environ.get("NO_LIVENESS", "0") == "1":
+        liveness_result = {"passed": True, "yaw": 0.0, "reason": "Liveness skipped (NO_LIVENESS=1)"}
+    else:
+        liveness_result = check_liveness(
+            frame=frame,
+            challenge=challenge,
+            landmarks=landmarks,
+            challenge_issued_at=challenge_issued_at,
+        )
 
     if not liveness_result["passed"]:
         return _denied(

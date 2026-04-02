@@ -1,26 +1,30 @@
 import React, { useState, useEffect } from 'react';
 import Card from '../components/Card';
+import Button from '../components/Button';
 import { logsService } from '../api/services';
 import './AccessLogs.css';
 
 const AccessLogs = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all'); // all, authorized, unauthorized
 
   useEffect(() => {
     fetchLogs();
-    // Poll for updates every 10 seconds
-    const interval = setInterval(fetchLogs, 10000);
+    // Poll for updates every 5 seconds to match dashboard refresh rate
+    const interval = setInterval(fetchLogs, 5000);
     return () => clearInterval(interval);
   }, []);
 
   const fetchLogs = async () => {
     try {
+      setError(null);
       const response = await logsService.getLogs(100);
       setLogs(Array.isArray(response) ? response : []);
-    } catch (error) {
-      console.error('Failed to fetch logs:', error);
+    } catch (err) {
+      console.error('Failed to fetch logs:', err);
+      setError('Cannot reach backend. Is the server running?');
     } finally {
       setLoading(false);
     }
@@ -36,11 +40,11 @@ const AccessLogs = () => {
 
   const filteredLogs = logs.filter(log => {
     if (filter === 'all') return true;
-    return log.accessType.toLowerCase() === filter;
+    return (log.accessType || '').toLowerCase() === filter;
   });
 
   const getAccessTypeClass = (accessType) => {
-    return accessType.toLowerCase() === 'authorized' ? 'authorized' : 'unauthorized';
+    return (accessType || '').toLowerCase() === 'authorized' ? 'authorized' : 'unauthorized';
   };
 
   return (
@@ -61,13 +65,13 @@ const AccessLogs = () => {
             className={`filter-btn ${filter === 'authorized' ? 'active' : ''}`}
             onClick={() => setFilter('authorized')}
           >
-            Authorized ({logs.filter(l => l.accessType.toLowerCase() === 'authorized').length})
+            Authorized ({logs.filter(l => (l.accessType || '').toLowerCase() === 'authorized').length})
           </button>
           <button
             className={`filter-btn ${filter === 'unauthorized' ? 'active' : ''}`}
             onClick={() => setFilter('unauthorized')}
           >
-            Unauthorized ({logs.filter(l => l.accessType.toLowerCase() === 'unauthorized').length})
+            Unauthorized ({logs.filter(l => (l.accessType || '').toLowerCase() === 'unauthorized').length})
           </button>
         </div>
       </div>
@@ -77,6 +81,12 @@ const AccessLogs = () => {
           <div className="logs-loading">
             <div className="spinner"></div>
             <p>Loading access logs...</p>
+          </div>
+        ) : error ? (
+          <div className="logs-empty">
+            <span className="empty-icon">⚠️</span>
+            <p>{error}</p>
+            <Button variant="secondary" onClick={fetchLogs}>Retry</Button>
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="logs-empty">
@@ -91,8 +101,8 @@ const AccessLogs = () => {
                   <th>Date & Time</th>
                   <th>Access Type</th>
                   <th>User</th>
+                  <th>Confidence</th>
                   <th>Result</th>
-                  <th>Evidence</th>
                 </tr>
               </thead>
               <tbody>
@@ -118,15 +128,13 @@ const AccessLogs = () => {
                         </span>
                         {log.userName}
                       </td>
-                      <td>
-                        <span className={`result-badge result-${log.result.toLowerCase()}`}>
-                          {log.result}
-                        </span>
+                      <td className="log-confidence">
+                        {log.confidence != null ? `${Number(log.confidence).toFixed(1)}%` : '—'}
                       </td>
                       <td>
-                        <button className="evidence-btn" title="View Evidence">
-                           View
-                        </button>
+                        <span className={`result-badge result-${(log.result || '').toLowerCase()}`}>
+                          {log.result}
+                        </span>
                       </td>
                     </tr>
                   );

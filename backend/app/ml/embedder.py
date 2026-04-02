@@ -95,3 +95,17 @@ def embeddings_to_list(embedding: np.ndarray) -> list:
 def list_to_embedding(data: list) -> np.ndarray:
     """Reconstruct a numpy embedding from a stored list."""
     return np.array(data, dtype=np.float32)
+
+
+def warmup() -> None:
+    """
+    Force-load the FaceNet model into memory.
+    Call once at startup to avoid slow first-inference latency.
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+    try:
+        _get_model()
+        logger.info("FaceNet (InceptionResnetV1) warmed up.")
+    except Exception as exc:
+        logger.warning("FaceNet warmup failed: %s", exc)

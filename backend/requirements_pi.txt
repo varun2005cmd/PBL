@@ -36,8 +36,8 @@ opencv-python-headless>=4.8.0
 numpy>=1.24.0
 scikit-learn>=1.3.0
 
-# ---- Hardware (Raspberry Pi OS ships RPi.GPIO; uncomment if missing) ----
-# RPi.GPIO>=0.7.1
+# ---- Hardware (RPi.GPIO is pre-installed on Raspberry Pi OS; listed for venv installs) ----
+RPi.GPIO>=0.7.1
 smbus2>=0.4.3
 
 # ---- Misc ----

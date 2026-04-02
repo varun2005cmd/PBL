@@ -120,10 +120,13 @@ def capture_frame_jpeg(quality: int = 85) -> Optional[bytes]:
 
 def wait_for_face(
     timeout: float = 10.0,
-    poll_interval: float = 0.1,
+    poll_interval: float = 0.3,
 ) -> Optional[np.ndarray]:
     """
     Poll the camera until a face is detected or *timeout* seconds elapse.
+
+    poll_interval defaults to 0.3 s (≈3 fps face checks) to keep Pi CPU
+    usage low during the idle waiting phase.
 
     Returns the first frame that contains a detectable face, or None.
     """
