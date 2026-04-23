@@ -95,7 +95,7 @@ COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
 
 def run_detection(all_images: dict):
     """
-    Detect faces in every image using MTCNN.
+    Detect faces in every image using MediaPipe FaceLandmarker.
     Returns {username: [(path, bgr, detection_or_None), ...]}
     """
     from app.ml.face_detector import detect_face
@@ -527,7 +527,7 @@ def main():
           f"(total {sum(len(v) for v in test_imgs.values())} images)")
 
     #  2. Face detection 
-    print("\n[2/6] Running face detection (MTCNN) ")
+    print("\n[2/6] Running face detection (MediaPipe FaceLandmarker) ")
     train_det = run_detection(train_imgs)
     test_det  = run_detection(test_imgs)
 
@@ -544,7 +544,7 @@ def main():
 
     if not flat_train:
         print("\n  ERROR: No embeddings generated for training set.")
-        print("  Ensure MTCNN detected at least one face in train images.")
+        print("  Ensure MediaPipe detected at least one face in train images.")
         sys.exit(1)
 
     print("  Plotting 2-D PCA of embedding space ")

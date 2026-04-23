@@ -4,6 +4,44 @@
   margin: 0 auto;
 }
 
+/* Production dark minimal overrides */
+.user-management {
+  width: min(1180px, calc(100% - 32px));
+  max-width: none;
+  padding: 28px 0 44px;
+}
+
+.users-header h1,
+.summary-count,
+.user-name {
+  color: var(--text);
+}
+
+.users-subtitle,
+.summary-label,
+.user-id,
+.user-last-access {
+  color: var(--muted);
+}
+
+.summary-item,
+.user-card {
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.user-role-badge,
+.status-badge {
+  border-radius: 6px;
+  letter-spacing: 0;
+}
+
+.toggle-slider {
+  background: var(--border);
+}
+
 .users-header {
   display: flex;
   justify-content: space-between;

@@ -11,11 +11,29 @@ POST /hardware/unlock        Unlock the door (servo).
 """
 
 import logging
+import os
 import time
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 
 logger = logging.getLogger(__name__)
 hardware_bp = Blueprint("hardware_bp", __name__)
+
+_API_KEY = os.environ.get("API_KEY")
+
+
+def _authorised() -> bool:
+    """Optional API key gate for sensitive hardware routes."""
+    if not _API_KEY:
+        return True
+    return request.headers.get("X-API-Key") == _API_KEY
+
+
+def _reject_unauthorised():
+    return jsonify({
+        "success": False,
+        "error": "unauthorised",
+        "message": "Missing or invalid API key",
+    }), 401
 
 # Internal state — updated by both REST calls and the auto-relock timer
 _door_status = "locked"
@@ -38,6 +56,8 @@ def _compute_status() -> str:
 @hardware_bp.route("/hardware/status", methods=["GET"])
 def get_status():
     """Return the real-time door lock status."""
+    if not _authorised():
+        return _reject_unauthorised()
     status = _compute_status()
     try:
         from app.hardware import camera as cam_mod, servo as srv_mod, lcd as lcd_mod
@@ -59,6 +79,8 @@ def get_status():
 def lock_door():
     """Lock the door via servo motor."""
     global _door_status, _lock_time
+    if not _authorised():
+        return _reject_unauthorised()
     try:
         from app.hardware import servo
         servo.lock_door()
@@ -78,6 +100,8 @@ def lock_door():
 def unlock_door():
     """Unlock the door via servo motor."""
     global _door_status, _lock_time
+    if not _authorised():
+        return _reject_unauthorised()
     from app.hardware.servo import _UNLOCK_DURATION_S
     try:
         from app.hardware import servo

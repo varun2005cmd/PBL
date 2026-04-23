@@ -71,3 +71,27 @@ export const statsService = {
     return response.data;
   }
 };
+
+export const enrollmentService = {
+  start: async (name) => {
+    const response = await apiClient.post(ENDPOINTS.ENROLL_START, { name });
+    return response.data;
+  },
+
+  capture: async (sessionId) => {
+    const response = await apiClient.post(ENDPOINTS.ENROLL_CAPTURE, { sessionId });
+    return response.data;
+  },
+
+  complete: async (sessionId) => {
+    const response = await apiClient.post(ENDPOINTS.ENROLL_COMPLETE, { sessionId });
+    return response.data;
+  }
+};
+
+export const violationsService = {
+  getViolations: async () => {
+    const response = await apiClient.get(ENDPOINTS.VIOLATIONS);
+    return response.data;
+  }
+};

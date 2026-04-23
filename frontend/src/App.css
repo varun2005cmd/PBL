@@ -2,7 +2,7 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: transparent;
+  background: var(--bg);
 }
 
 .app-content {
@@ -11,10 +11,10 @@
 }
 
 .app-footer {
-  background: #374151; /* slate */
-  color: white;
+  background: #0b1220;
+  color: var(--muted);
   text-align: center;
-  padding: 18px;
+  padding: 16px;
   margin-top: auto;
 }
 

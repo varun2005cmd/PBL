@@ -1,0 +1,15 @@
+[Unit]
+Description=Raspberry Pi Smart Door Lock
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/pi/PBL
+ExecStart=/home/pi/PBL/run.sh
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

@@ -1,61 +1,34 @@
-# Smart Door Security System - Frontend
+# Smart Door Security Frontend
 
-IoT-Based Smart Door Security System with Face Recognition - Admin Panel
+React dashboard for the Flask smart door backend.
 
-## Features
+## Backend
 
--  Real-time door status monitoring
--  Manual lock/unlock controls
--  Access logs and analytics
--  User management
--  Intrusion detection alerts
+By default the frontend calls:
 
-## Tech Stack
+```text
+http://<current-browser-hostname>:5000
+```
 
-- React.js
-- React Router
-- Axios
-- CSS3
+Override with `REACT_APP_API_BASE` in `frontend/.env` when needed.
 
-## Getting Started
+## Pages
 
-### Prerequisites
+- `/` Dashboard: stats, hardware health, recent logs, manual lock/unlock
+- `/logs` Access logs
+- `/users` User management
+- `/enroll` Live camera enrollment
+- `/violations` Repeat-person violation evidence
 
-- Node.js (v14 or higher)
-- npm or yarn
-
-### Installation
+## Run
 
 ```bash
-# Install dependencies
 npm install
-
-# Start development server
 npm start
 ```
 
-The application will open at [http://localhost:3000](http://localhost:3000)
+## Production Build
 
-### Backend Configuration
-
-Update the API base URL in `src/api/config.js` to point to your Flask backend.
-
-Default: `http://localhost:5000/api`
-
-## Project Structure
-
+```bash
+npm run build
 ```
-src/
-   api/              # API service layer
-   components/       # Reusable components
-   pages/           # Main pages
-   styles/          # CSS styles
-   App.js           # Main app component
-   index.js         # Entry point
-```
-
-## Available Scripts
-
-- `npm start` - Run development server
-- `npm build` - Build for production
-- `npm test` - Run tests

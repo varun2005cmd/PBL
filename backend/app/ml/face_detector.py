@@ -42,6 +42,8 @@ _MP_RIGHT_EYE   = 263   # outer right eye corner (subject's right)
 _MP_NOSE        = 1     # nose tip
 _MP_MOUTH_LEFT  = 61    # left mouth corner
 _MP_MOUTH_RIGHT = 291   # right mouth corner
+_MP_LEFT_EYE_EAR = (33, 160, 158, 133, 153, 144)
+_MP_RIGHT_EYE_EAR = (362, 385, 387, 263, 373, 380)
 
 _landmarker = None   # cached FaceLandmarker instance
 
@@ -72,7 +74,8 @@ def _get_detector():
     options = FaceLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=str(_MODEL_PATH)),
         running_mode=VisionRunningMode.IMAGE,
-        num_faces=1,
+        # Allow detection of >1 face so we can safely reject ambiguous frames.
+        num_faces=2,
         min_face_detection_confidence=0.5,
         min_face_presence_confidence=0.5,
         min_tracking_confidence=0.5,
@@ -141,11 +144,23 @@ def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
     if not result.face_landmarks:
         return None
 
+    # Security/usability trade-off: if multiple faces are present, do not guess.
+    # Force the caller to retry with a single face in frame.
+    if len(result.face_landmarks) > 1:
+        return {"error": "multiple_faces", "count": len(result.face_landmarks)}
+
     face_lm = result.face_landmarks[0]   # list of NormalizedLandmark
 
     def _px(lm_idx: int):
         lm = face_lm[lm_idx]
         return (int(lm.x * w), int(lm.y * h))
+
+    def _ear(indices):
+        p = [np.array(_px(i), dtype=np.float32) for i in indices]
+        vertical_1 = np.linalg.norm(p[1] - p[5])
+        vertical_2 = np.linalg.norm(p[2] - p[4])
+        horizontal = np.linalg.norm(p[0] - p[3])
+        return float((vertical_1 + vertical_2) / (2.0 * horizontal)) if horizontal else 0.0
 
     landmarks = {
         "left_eye":    _px(_MP_LEFT_EYE),
@@ -153,6 +168,8 @@ def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
         "nose":        _px(_MP_NOSE),
         "mouth_left":  _px(_MP_MOUTH_LEFT),
         "mouth_right": _px(_MP_MOUTH_RIGHT),
+        "left_eye_ear": _ear(_MP_LEFT_EYE_EAR),
+        "right_eye_ear": _ear(_MP_RIGHT_EYE_EAR),
     }
 
     # Derive bounding box from all landmark x/y coords

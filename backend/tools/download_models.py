@@ -17,6 +17,7 @@ Usage (from the backend/ directory):
 """
 
 import sys
+import os
 import logging
 from pathlib import Path
 import urllib.request
@@ -26,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _MODEL_STORE = Path(__file__).resolve().parent.parent / "app" / "ml" / "model_store"
 _LANDMARKER_PATH = _MODEL_STORE / "face_landmarker.task"
+_TORCH_CACHE = _MODEL_STORE / "torch_cache"
 _LANDMARKER_URL  = (
     "https://storage.googleapis.com/mediapipe-models/"
     "face_landmarker/face_landmarker/float16/1/face_landmarker.task"
@@ -35,6 +37,7 @@ _LANDMARKER_URL  = (
 def download_facenet():
     logger.info("Downloading FaceNet (InceptionResnetV1-vggface2) ...")
     try:
+        os.environ.setdefault("TORCH_HOME", str(_TORCH_CACHE))
         from facenet_pytorch import InceptionResnetV1
         model = InceptionResnetV1(pretrained="vggface2").eval()
         logger.info(

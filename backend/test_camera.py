@@ -7,7 +7,7 @@
 #
 # Flow per cycle:
 #   1. Wait until a face appears in the camera frame
-#   2. Issue a liveness challenge (head turn LEFT or RIGHT)
+#   2. Issue a liveness challenge (blink or head pose)
 #   3. Capture post-turn frame, verify the head actually turned
 #   4. Run FaceNet embedding + SVM recognition
 #   5. Print GRANTED / DENIED to the terminal
@@ -185,12 +185,20 @@ def run_test_loop(cap, app):
             challenge = token["challenge"]
             issued_at = token["issued_at"]
 
-            print(f"\n  >>> LIVENESS CHALLENGE: Turn your head {challenge} <<<\n")
-            time.sleep(3.0)
+            from app.ml.liveness import challenge_prompt
+            print(f"\n  >>> LIVENESS CHALLENGE: {challenge_prompt(challenge)} <<<\n")
 
-            cap.grab()
-            ret2, frame2 = cap.read()
-            if not ret2 or frame2 is None:
+            samples = []
+            deadline = time.monotonic() + 8.0
+            while time.monotonic() < deadline:
+                cap.grab()
+                ret2, sample = cap.read()
+                if ret2 and sample is not None:
+                    samples.append(sample)
+                time.sleep(0.35)
+
+            frame2 = samples[-1] if samples else None
+            if frame2 is None:
                 logger.warning("Could not read liveness response frame. Retrying.")
                 time.sleep(1)
                 continue
@@ -206,11 +214,15 @@ def run_test_loop(cap, app):
                 challenge=challenge,
                 landmarks=det2["landmarks"],
                 challenge_issued_at=issued_at,
+                frames=samples,
             )
             liveness_passed = liveness_result["passed"]
             logger.info(
-                "Liveness: passed=%s  yaw=%.1f deg  reason=%s",
-                liveness_passed, liveness_result["yaw"], liveness_result["reason"],
+                "Liveness: passed=%s  yaw=%.1f pitch=%.1f reason=%s",
+                liveness_passed,
+                liveness_result.get("yaw", 0.0),
+                liveness_result.get("pitch", 0.0),
+                liveness_result["reason"],
             )
             if liveness_passed:
                 detection = det2
@@ -257,7 +269,7 @@ def run_test_loop(cap, app):
         # -- Log to DB -------------------------------------------------------
         with app.app_context():
             log = AccessLog(
-                timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
                 status     = "granted" if user != "unknown" else "denied",
                 user       = user,
                 liveness   = liveness_passed,

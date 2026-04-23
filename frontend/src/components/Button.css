@@ -1,20 +1,20 @@
 .btn {
   padding: 10px 18px;
-  border-radius: 10px;
+  border-radius: 6px;
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
   transition: all 0.18s ease;
   text-transform: none;
-  letter-spacing: 0.2px;
+  letter-spacing: 0;
   border: 1px solid transparent;
   background: transparent;
-  color: #1F2933;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.06);
+  color: var(--text);
+  box-shadow: none;
 }
 
 .btn:hover:not(:disabled) {
-  transform: translateY(-2px);
+  filter: brightness(1.05);
 }
 
 .btn:active:not(:disabled) {
@@ -35,8 +35,8 @@
 
 .btn-secondary {
   background: transparent;
-  color: #1F2933;
-  border-color: #374151;
+  color: var(--text);
+  border-color: var(--border);
 }
 
 .btn-danger {
@@ -52,9 +52,9 @@
 }
 
 .btn-primary {
-  background: #1F2933;
-  color: white;
-  border-color: #1F2933;
+  background: var(--cyan);
+  color: #0f172a;
+  border-color: var(--cyan);
 }
 
 /* Sizes */

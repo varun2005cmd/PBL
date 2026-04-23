@@ -3,7 +3,7 @@
   align-items: center;
   gap: 12px;
   padding: 16px 20px;
-  border-radius: 8px;
+  border-radius: 6px;
   margin-bottom: 16px;
   animation: slideIn 0.3s ease;
 }
@@ -20,7 +20,7 @@
 }
 
 .alert-icon {
-  font-size: 24px;
+  display: none;
   font-weight: bold;
 }
 
@@ -31,9 +31,9 @@
 }
 
 .alert-close {
-  background: none;
-  border: none;
-  font-size: 24px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid currentColor;
+  font-size: 0;
   cursor: pointer;
   padding: 0;
   width: 24px;
@@ -45,10 +45,15 @@
   transition: background 0.2s ease;
 }
 
+.alert-close::before {
+  content: "x";
+  font-size: 14px;
+}
+
 .alert-success {
-  background: #d4edda;
-  border: 1px solid #c3e6cb;
-  color: #155724;
+  background: rgba(34, 197, 94, 0.12);
+  border: 1px solid rgba(34, 197, 94, 0.4);
+  color: #bbf7d0;
 }
 
 .alert-success .alert-close:hover {
@@ -56,9 +61,9 @@
 }
 
 .alert-error {
-  background: #f8d7da;
-  border: 1px solid #f5c6cb;
-  color: #721c24;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.45);
+  color: #fecaca;
 }
 
 .alert-error .alert-close:hover {
@@ -66,9 +71,9 @@
 }
 
 .alert-warning {
-  background: #fff3cd;
-  border: 1px solid #ffeaa7;
-  color: #856404;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  color: #fde68a;
 }
 
 .alert-warning .alert-close:hover {
@@ -76,9 +81,9 @@
 }
 
 .alert-info {
-  background: #d1ecf1;
-  border: 1px solid #bee5eb;
-  color: #0c5460;
+  background: rgba(34, 211, 238, 0.12);
+  border: 1px solid rgba(34, 211, 238, 0.45);
+  color: #cffafe;
 }
 
 .alert-info .alert-close:hover {

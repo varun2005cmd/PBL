@@ -18,4 +18,8 @@ export const ENDPOINTS = {
   STATS: '/stats',
   CAMERA_FRAME: '/camera/frame',
   HEALTH: '/health',
+  VIOLATIONS: '/violations',
+  ENROLL_START: '/enroll/start',
+  ENROLL_CAPTURE: '/enroll/capture',
+  ENROLL_COMPLETE: '/enroll/complete',
 };

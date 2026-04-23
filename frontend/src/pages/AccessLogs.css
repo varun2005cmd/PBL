@@ -4,6 +4,50 @@
   margin: 0 auto;
 }
 
+/* Production dark minimal overrides */
+.access-logs {
+  width: min(1180px, calc(100% - 32px));
+  max-width: none;
+  padding: 28px 0 44px;
+}
+
+.logs-header h1,
+.log-user,
+.stat-value {
+  color: var(--text);
+}
+
+.logs-subtitle,
+.log-date,
+.log-time,
+.stat-label {
+  color: var(--muted);
+}
+
+.filter-btn,
+.logs-table,
+.logs-stats {
+  background: #0b1220;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  border-radius: 8px;
+}
+
+.filter-btn.active {
+  background: var(--cyan);
+  border-color: var(--cyan);
+  color: #0f172a;
+}
+
+.logs-table th {
+  background: #111c30;
+  color: var(--muted);
+}
+
+.logs-table td {
+  border-bottom-color: var(--border);
+}
+
 .logs-header {
   display: flex;
   justify-content: space-between;

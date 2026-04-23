@@ -8,6 +8,64 @@
   margin: 0 auto;
 }
 
+/* Production dark minimal overrides */
+.dashboard {
+  width: min(1180px, calc(100% - 32px));
+  max-width: none;
+  padding: 28px 0 44px;
+}
+
+.header-left h1,
+.live-clock,
+.door-title,
+.activity-user,
+.health-value,
+.pipeline-step-label {
+  color: var(--text);
+}
+
+.dashboard-subtitle,
+.door-meta,
+.activity-detail,
+.pipeline-desc,
+.pipeline-step-desc,
+.health-label {
+  color: var(--muted);
+}
+
+.system-status-badge,
+.live-clock,
+.health-chip,
+.door-badge {
+  border-radius: 6px;
+  background: #0b1220;
+  border: 1px solid var(--border);
+}
+
+.system-status-badge,
+.chip-green {
+  color: #bbf7d0;
+}
+
+.stats-row,
+.dashboard-main-grid {
+  gap: 16px;
+}
+
+.door-indicator-neutral,
+.activity-item,
+.health-bar-wrap,
+.pipeline-step {
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+.health-bar-wrap {
+  overflow: hidden;
+}
+
 /*  Header  */
 .dashboard-header {
   display: flex;

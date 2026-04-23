@@ -1,0 +1,63 @@
+.enroll-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.8fr);
+  gap: 18px;
+}
+
+.camera-panel {
+  aspect-ratio: 16 / 9;
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.camera-feed {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.camera-placeholder {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--muted);
+}
+
+.enroll-form {
+  display: grid;
+  gap: 14px;
+}
+
+.enroll-form label {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.capture-progress {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.progress-track {
+  height: 9px;
+  background: #0b1220;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--green);
+}
+
+@media (max-width: 860px) {
+  .enroll-grid {
+    grid-template-columns: 1fr;
+  }
+}

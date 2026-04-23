@@ -13,6 +13,8 @@
 from __future__ import annotations
 
 import numpy as np
+import os
+from pathlib import Path
 from typing import Optional
 
 # Lazy globals
@@ -25,11 +27,14 @@ def _get_model():
     global _model, _transform
     if _model is None:
         try:
+            cache_dir = Path(__file__).parent / "model_store" / "torch_cache"
+            os.environ.setdefault("TORCH_HOME", str(cache_dir))
             import torch
             from facenet_pytorch import InceptionResnetV1
             from torchvision import transforms
 
-            _model = InceptionResnetV1(pretrained="vggface2").eval()
+            pretrained = os.environ.get("FACENET_PRETRAINED", "vggface2")
+            _model = InceptionResnetV1(pretrained=pretrained).eval()
             # Force CPU  avoids CUDA dependency on Raspberry Pi
             _model = _model.to("cpu")
 

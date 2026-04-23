@@ -140,8 +140,15 @@ def show_access_denied(reason: str = "Denied") -> None:
 
 
 def show_challenge(direction: str) -> None:
-    """Prompt the user to perform the liveness head-turn challenge."""
-    display("Liveness check: ", f"Turn {direction}   ")
+    """Prompt the user to perform the current liveness challenge."""
+    prompts = {
+        "BLINK": "Blink twice",
+        "LEFT": "Look left",
+        "RIGHT": "Look right",
+        "UP": "Look up",
+        "DOWN": "Look down",
+    }
+    display("Liveness check: ", prompts.get(direction, str(direction))[:16])
 
 
 def show_processing() -> None:

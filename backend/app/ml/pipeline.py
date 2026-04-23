@@ -48,6 +48,7 @@ def authenticate_user(
     challenge: str,
     challenge_issued_at: float,
     prototype_embeddings: Dict[str, List[np.ndarray]],
+    liveness_frames: Optional[List[np.ndarray]] = None,
 ) -> Dict[str, Any]:
     """
     Full authentication pipeline for a single camera frame.
@@ -84,6 +85,13 @@ def authenticate_user(
     if detection is None:
         return _denied("no_face", "No face detected in the frame.", liveness=False)
 
+    if isinstance(detection, dict) and detection.get("error") == "multiple_faces":
+        return _denied(
+            "multiple_faces",
+            "Multiple faces detected. Please ensure only one face is in the frame.",
+            liveness=False,
+        )
+
     face_crop  = detection["face_crop"]    # (160, 160, 3) RGB
     landmarks  = detection["landmarks"]
     det_conf   = detection["confidence"]
@@ -102,6 +110,7 @@ def authenticate_user(
             challenge=challenge,
             landmarks=landmarks,
             challenge_issued_at=challenge_issued_at,
+            frames=liveness_frames,
         )
 
     if not liveness_result["passed"]:

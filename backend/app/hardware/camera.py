@@ -29,9 +29,9 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 _CAMERA_INDEX  = int(os.environ.get("CAMERA_INDEX", "0"))
-_CAPTURE_WIDTH  = int(os.environ.get("CAMERA_WIDTH",  "1280"))
-_CAPTURE_HEIGHT = int(os.environ.get("CAMERA_HEIGHT", "720"))
-_CAPTURE_FPS    = int(os.environ.get("CAMERA_FPS",    "30"))
+_CAPTURE_WIDTH  = int(os.environ.get("CAMERA_WIDTH",  "640"))
+_CAPTURE_HEIGHT = int(os.environ.get("CAMERA_HEIGHT", "480"))
+_CAPTURE_FPS    = int(os.environ.get("CAMERA_FPS",    "15"))
 
 # ---------------------------------------------------------------------------
 # Module-level singleton capture object (kept open for performance)
@@ -55,9 +55,12 @@ def _get_cap() -> Optional[cv2.VideoCapture]:
         "Opening USB camera (index=%d, %dx%d @ %d fps).",
         _CAMERA_INDEX, _CAPTURE_WIDTH, _CAPTURE_HEIGHT, _CAPTURE_FPS,
     )
-    # cv2.CAP_V4L2 only exists on Linux; fall back to auto-select on other OS
-    backend = getattr(cv2, "CAP_V4L2", cv2.CAP_ANY)
+    import platform
+    backend = cv2.CAP_V4L2 if platform.system() == "Linux" else cv2.CAP_ANY
     cap = cv2.VideoCapture(_CAMERA_INDEX, backend)
+    if not cap.isOpened() and backend != cv2.CAP_ANY:
+        cap.release()
+        cap = cv2.VideoCapture(_CAMERA_INDEX, cv2.CAP_ANY)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH,  _CAPTURE_WIDTH)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _CAPTURE_HEIGHT)
     cap.set(cv2.CAP_PROP_FPS,          _CAPTURE_FPS)
@@ -135,8 +138,10 @@ def wait_for_face(
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         frame = capture_frame()
-        if frame is not None and detect_face(frame) is not None:
-            return frame
+        if frame is not None:
+            det = detect_face(frame)
+            if isinstance(det, dict) and det.get("face_crop") is not None:
+                return frame
         time.sleep(poll_interval)
 
     logger.info("wait_for_face: timed out after %.1f s.", timeout)

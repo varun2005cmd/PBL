@@ -10,6 +10,12 @@ const apiClient = axios.create({
   }
 });
 
+// Optional API key support (backend enforces only when API_KEY is set)
+const apiKey = process.env.REACT_APP_API_KEY;
+if (apiKey) {
+  apiClient.defaults.headers.common['X-API-Key'] = apiKey;
+}
+
 // Request interceptor
 apiClient.interceptors.request.use(
   (config) => {

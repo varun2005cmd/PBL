@@ -34,6 +34,8 @@ POST /scan                   Legacy mock endpoint kept for backward-compatibilit
 
 import time
 import logging
+import threading
+import uuid
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
@@ -41,9 +43,14 @@ from flask import Blueprint, request, jsonify
 from app.models       import db
 from app.models.user  import User
 from app.models.log   import AccessLog
+from app.models.violation import ViolationImage
 
 logger = logging.getLogger(__name__)
 user_bp = Blueprint("user_bp", __name__)
+_enrollment_sessions = {}
+_enrollment_lock = threading.Lock()
+_ENROLLMENT_TARGET_FRAMES = 5
+_ENROLLMENT_SESSION_TTL_SECONDS = 15 * 60
 
 
 # =============================================================================
@@ -84,7 +91,24 @@ def _load_prototype_embeddings() -> dict:
     Used by authenticate_user() and the SVM trainer.
     """
     users = User.query.filter_by(active=True, enrolled=True).all()
-    return {u.name: u.get_np_embeddings() for u in users if u.get_np_embeddings()}
+    prototypes = {}
+    for user in users:
+        embeddings = user.get_np_embeddings()
+        if embeddings:
+            prototypes[user.name] = embeddings
+    return prototypes
+
+
+def _cleanup_enrollment_sessions() -> None:
+    now = time.time()
+    with _enrollment_lock:
+        expired = [
+            session_id
+            for session_id, session in _enrollment_sessions.items()
+            if now - session.get("started_at", now) > _ENROLLMENT_SESSION_TTL_SECONDS
+        ]
+        for session_id in expired:
+            _enrollment_sessions.pop(session_id, None)
 
 
 # =============================================================================
@@ -129,7 +153,12 @@ def delete_user(user_id: int):
 
 @user_bp.route("/logs", methods=["GET"])
 def get_logs():
-    logs = AccessLog.query.order_by(AccessLog.id.desc()).all()
+    # Optional cap for UI polling; prevents returning an ever-growing log list.
+    limit = request.args.get("limit", type=int)
+    q = AccessLog.query.order_by(AccessLog.id.desc())
+    if limit:
+        q = q.limit(max(1, min(limit, 1000)))
+    logs = q.all()
     return jsonify([l.to_dict() for l in logs])
 
 
@@ -161,7 +190,7 @@ def authenticate():
     ------------------
     Form-data fields:
       image      : image file (JPEG / PNG)
-      challenge  : "LEFT" or "RIGHT"
+      challenge  : "BLINK", "LEFT", "RIGHT", "UP", or "DOWN"
       issued_at  : float (Unix timestamp from /challenge)
 
     Returns the standard auth result JSON.
@@ -173,8 +202,8 @@ def authenticate():
 
     if not image_file:
         return jsonify({"error": "No image provided"}), 400
-    if challenge not in ("LEFT", "RIGHT"):
-        return jsonify({"error": "challenge must be LEFT or RIGHT"}), 400
+    if challenge not in ("BLINK", "LEFT", "RIGHT", "UP", "DOWN"):
+        return jsonify({"error": "challenge must be BLINK, LEFT, RIGHT, UP, or DOWN"}), 400
     try:
         issued_at = float(issued_at)
     except (TypeError, ValueError):
@@ -188,14 +217,23 @@ def authenticate():
 
     # ---------- run pipeline ----------
     prototypes = _load_prototype_embeddings()
-    result     = authenticate_user(frame, challenge, issued_at, prototypes)
+    liveness_frames = []
+    for sample in request.files.getlist("liveness_images"):
+        sample_frame = decode_frame(sample.read())
+        if sample_frame is not None:
+            liveness_frames.append(sample_frame)
+    result = authenticate_user(frame, challenge, issued_at, prototypes, liveness_frames or None)
+
+    from app.security.repeat_detection import apply_repeat_policy
+    result = apply_repeat_policy(result, frame, db, liveness_frames)
 
     # ---------- actuate hardware (non-blocking, best-effort) ----------
     _trigger_hardware(result)
 
     # ---------- persist audit log ----------
     log = AccessLog(
-        timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        # Use ISO-8601 so the React UI (new Date(...)) parses reliably.
+        timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
         status     = result["status"],
         user       = result["user"],
         liveness   = result["liveness"],
@@ -208,6 +246,23 @@ def authenticate():
 
     http_status = 200 if result["status"] == "granted" else 403
     return jsonify(result), http_status
+
+
+@user_bp.route("/violations", methods=["GET"])
+def get_violations():
+    rows = ViolationImage.query.order_by(ViolationImage.id.desc()).all()
+    grouped = {}
+    for row in rows:
+        item = row.to_dict()
+        bucket = grouped.setdefault(row.group_id, {
+            "groupId": row.group_id,
+            "userId": row.user_id,
+            "userName": item["userName"],
+            "timestamp": row.timestamp,
+            "images": [],
+        })
+        bucket["images"].append(item)
+    return jsonify(list(grouped.values()))
 
 
 # =============================================================================
@@ -261,6 +316,108 @@ def enroll_user(user_id: int):
     return jsonify({
         "message":  enroll_result["message"],
         "user":     user.to_dict(),
+        "enrolled": enroll_result["count"],
+    })
+
+
+@user_bp.route("/enroll/start", methods=["POST"])
+def enroll_start():
+    _cleanup_enrollment_sessions()
+    data = request.json or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "name is required"}), 400
+
+    user = User.query.filter_by(name=name).first()
+    if not user:
+        user = User(name=name)
+        db.session.add(user)
+        db.session.commit()
+
+    session_id = uuid.uuid4().hex
+    with _enrollment_lock:
+        _enrollment_sessions[session_id] = {
+            "user_id": user.id,
+            "name": user.name,
+            "frames": [],
+            "started_at": time.time(),
+        }
+
+    return jsonify({
+        "sessionId": session_id,
+        "user": user.to_dict(),
+        "targetFrames": _ENROLLMENT_TARGET_FRAMES,
+        "captured": 0,
+        "message": "Enrollment started",
+    }), 201
+
+
+@user_bp.route("/enroll/capture", methods=["POST"])
+def enroll_capture():
+    _cleanup_enrollment_sessions()
+    data = request.json or {}
+    session_id = data.get("sessionId")
+    with _enrollment_lock:
+        session = _enrollment_sessions.get(session_id)
+    if not session:
+        return jsonify({"error": "Enrollment session not found"}), 404
+
+    from app.hardware.camera import capture_frame
+    from app.ml.face_detector import detect_face
+
+    frame = capture_frame()
+    if frame is None:
+        return jsonify({"error": "Camera unavailable"}), 503
+    detection = detect_face(frame)
+    if not isinstance(detection, dict) or detection.get("error"):
+        return jsonify({"error": "No usable single face found"}), 422
+
+    with _enrollment_lock:
+        session["frames"].append(frame)
+        captured = len(session["frames"])
+
+    return jsonify({
+        "sessionId": session_id,
+        "captured": captured,
+        "targetFrames": _ENROLLMENT_TARGET_FRAMES,
+        "complete": captured >= _ENROLLMENT_TARGET_FRAMES,
+        "message": f"Captured image {captured}/{_ENROLLMENT_TARGET_FRAMES}",
+    })
+
+
+@user_bp.route("/enroll/complete", methods=["POST"])
+def enroll_complete():
+    _cleanup_enrollment_sessions()
+    data = request.json or {}
+    session_id = data.get("sessionId")
+    with _enrollment_lock:
+        session = _enrollment_sessions.get(session_id)
+    if not session:
+        return jsonify({"error": "Enrollment session not found"}), 404
+
+    frames = list(session["frames"])
+    if len(frames) < 3:
+        return jsonify({"error": "At least 3 captured images are required"}), 400
+
+    user = db.session.get(User, session["user_id"])
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    from app.ml.pipeline import enroll_user as ml_enroll
+    enroll_result = ml_enroll(frames, user.name)
+    if not enroll_result["ok"]:
+        return jsonify({"error": enroll_result["message"]}), 422
+
+    existing = user.get_embeddings()
+    user.set_embeddings(existing + enroll_result["embeddings"])
+    db.session.commit()
+
+    with _enrollment_lock:
+        _enrollment_sessions.pop(session_id, None)
+
+    return jsonify({
+        "message": enroll_result["message"],
+        "user": user.to_dict(),
         "enrolled": enroll_result["count"],
     })
 
@@ -323,7 +480,7 @@ def scan_face():
             }
 
     log = AccessLog(
-        timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
         status     = "granted"  if scan["result"] == "Authorized" else "denied",
         user       = scan.get("user", "unknown"),
         liveness   = False,

@@ -92,7 +92,10 @@ def recognize_user(
     svm, label_map = _load_classifier()
     if svm is not None and label_map is not None:
         svm_result = _svm_predict(embedding, svm, label_map)
-        if svm_result["confidence"] >= SVM_PROB_THRESHOLD:
+        if (
+            svm_result["confidence"] >= SVM_PROB_THRESHOLD
+            and svm_result["user"] == nn_user
+        ):
             # Both stages agree: return SVM result enriched with distance
             return {
                 "user":       svm_result["user"],

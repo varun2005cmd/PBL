@@ -107,17 +107,21 @@ def _single_cycle(app, camera, lcd, servo, db, AccessLog,
     logger.info("Liveness challenge issued: %s", challenge)
     lcd.show_challenge(challenge)
 
-    # Give the user time to perform the head turn before capture.
-    # Wait for half the challenge timeout so the user has plenty of time
-    # and we still capture before the timeout elapses.
-    wait_before_capture = min(4.0, CHALLENGE_TIMEOUT * 0.3)
-    time.sleep(wait_before_capture)
+    # ------------------------------------------------------------------
+    # Step 3: Capture response frames during the challenge window.
+    # BLINK requires temporal evidence, while pose challenges use the last
+    # usable frame in the sample set.
+    # ------------------------------------------------------------------
+    response_frames = []
+    deadline = time.monotonic() + min(CHALLENGE_TIMEOUT, 8.0)
+    while time.monotonic() < deadline:
+        sample = camera.capture_frame()
+        if sample is not None:
+            response_frames.append(sample)
+        time.sleep(0.35)
 
-    # ------------------------------------------------------------------
-    # Step 3: Capture the response frame
-    # ------------------------------------------------------------------
     lcd.show_processing()
-    response_frame = camera.capture_frame()
+    response_frame = response_frames[-1] if response_frames else camera.capture_frame()
 
     if response_frame is None:
         logger.warning("Camera capture failed during challenge.")
@@ -131,7 +135,15 @@ def _single_cycle(app, camera, lcd, servo, db, AccessLog,
     # ------------------------------------------------------------------
     with app.app_context():
         prototypes = load_embeddings()
-        result = authenticate_user(response_frame, challenge, issued_at, prototypes)
+        from app.security.repeat_detection import apply_repeat_policy
+        result = authenticate_user(
+            response_frame,
+            challenge,
+            issued_at,
+            prototypes,
+            response_frames or None,
+        )
+        result = apply_repeat_policy(result, response_frame, db, response_frames)
 
         status     = result["status"]
         user_name  = result["user"]
@@ -163,7 +175,7 @@ def _single_cycle(app, camera, lcd, servo, db, AccessLog,
         # Step 6: Persist audit log
         # ------------------------------------------------------------------
         log = AccessLog(
-            timestamp  = datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
             status     = status,
             user       = user_name,
             liveness   = liveness,

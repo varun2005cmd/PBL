@@ -1,0 +1,22 @@
+--extra-index-url https://www.piwheels.org/simple
+
+Flask==3.0.3
+Flask-Cors==4.0.1
+Flask-SQLAlchemy==3.1.1
+Werkzeug==3.0.6
+SQLAlchemy==2.0.36
+gunicorn==21.2.0
+requests==2.32.3
+
+numpy==1.26.4
+Pillow==10.4.0
+opencv-python-headless==4.9.0.80
+scikit-learn==1.4.2
+
+facenet-pytorch==2.5.3
+torch==2.2.2
+torchvision==0.17.2
+
+mediapipe==0.10.14
+smbus2==0.4.3
+RPi.GPIO==0.7.1
