@@ -1,54 +1,68 @@
 # =============================================================================
-# app/ml/embedder.py
-# Face Embedding with FaceNet (InceptionResnetV1)
+# app/ml/embedder.py  –  v2 (hardened)
 #
-# Uses facenet-pytorch (CPU mode) to produce 512-D L2-normalised embeddings.
-# 512-D is the standard FaceNet output; the user-specified "128-D" refers to
-# the *concept* of a compact embedding  512-D gives superior accuracy while
-# remaining entirely CPU-runnable on Raspberry Pi.
-#
-# The model is lazy-loaded and cached for the process lifetime.
+# Fixes applied:
+#   • _model_lock prevents race conditions during parallel requests
+#   • generate_embedding() wraps entire inference in try/except
+#   • face_crop dtype / shape validated before torch conversion
+#   • torch.inference_mode() instead of no_grad() (faster + safer on Pi)
+#   • All exceptions logged (no silent failures)
 # =============================================================================
 
 from __future__ import annotations
 
-import numpy as np
+import logging
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
-# Lazy globals
+import numpy as np
+
+logger = logging.getLogger(__name__)
+
+# Lazy globals – guarded by _model_lock
 _model      = None
 _transform  = None
+_model_lock = threading.Lock()
 
 
 def _get_model():
-    """Lazy-load InceptionResnetV1 (FaceNet) in CPU eval mode."""
+    """Lazy-load InceptionResnetV1 (FaceNet) in CPU eval mode.  Thread-safe."""
     global _model, _transform
-    if _model is None:
+    if _model is not None:
+        return _model, _transform
+
+    with _model_lock:
+        # Double-check inside lock
+        if _model is not None:
+            return _model, _transform
+
         try:
             cache_dir = Path(__file__).parent / "model_store" / "torch_cache"
             os.environ.setdefault("TORCH_HOME", str(cache_dir))
+
             import torch
             from facenet_pytorch import InceptionResnetV1
             from torchvision import transforms
 
             pretrained = os.environ.get("FACENET_PRETRAINED", "vggface2")
-            _model = InceptionResnetV1(pretrained=pretrained).eval()
-            # Force CPU  avoids CUDA dependency on Raspberry Pi
-            _model = _model.to("cpu")
+            logger.info("Loading FaceNet (pretrained=%s) …", pretrained)
+            _model = InceptionResnetV1(pretrained=pretrained).eval().to("cpu")
 
-            # Standard FaceNet pre-processing
             _transform = transforms.Compose([
                 transforms.ToTensor(),
-                transforms.Normalize(mean=[0.5, 0.5, 0.5],
-                                     std=[0.5, 0.5, 0.5]),
+                transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
             ])
+            logger.info("FaceNet loaded successfully.")
         except ImportError as exc:
             raise ImportError(
-                "facenet-pytorch is not installed. "
-                "Run: pip install facenet-pytorch"
+                "facenet-pytorch is not installed. Run: pip install facenet-pytorch"
             ) from exc
+        except Exception as exc:
+            logger.error("FaceNet model load failed: %s", exc)
+            raise
+
     return _model, _transform
 
 
@@ -69,32 +83,58 @@ def generate_embedding(face_crop: np.ndarray) -> Optional[np.ndarray]:
     Returns
     -------
     np.ndarray | None
-        Shape (512,), float32, L2-normalised.
-        Returns None if the input is invalid.
+        Shape (512,), float32, L2-normalised.  None on any failure.
     """
-    if face_crop is None or face_crop.size == 0:
+    if face_crop is None:
+        logger.debug("generate_embedding: received None.")
         return None
 
-    import torch
-    from PIL import Image
+    if not isinstance(face_crop, np.ndarray):
+        logger.debug("generate_embedding: input is not ndarray (type=%s).", type(face_crop).__name__)
+        return None
 
-    model, transform = _get_model()
+    if face_crop.size == 0 or face_crop.ndim != 3 or face_crop.shape[2] != 3:
+        logger.debug("generate_embedding: invalid face_crop shape %s.", face_crop.shape)
+        return None
 
-    # Convert numpy (H, W, C) uint8 RGB  PIL Image
-    pil_img = Image.fromarray(face_crop.astype(np.uint8))
+    # Ensure uint8 (PIL requires it)
+    if face_crop.dtype != np.uint8:
+        face_crop = np.clip(face_crop, 0, 255).astype(np.uint8)
 
-    # Apply normalisation transform  shape (3, 160, 160)
-    tensor = transform(pil_img).unsqueeze(0)  # (1, 3, 160, 160)
+    try:
+        import torch
+        from PIL import Image
 
-    with torch.no_grad():
-        embedding = model(tensor)  # (1, 512)
+        model, transform = _get_model()
 
-    return embedding.squeeze().cpu().numpy()  # (512,) float32
+        pil_img = Image.fromarray(face_crop)
+        tensor  = transform(pil_img).unsqueeze(0)   # (1, 3, 160, 160)
+
+        with torch.inference_mode():
+            embedding = model(tensor)               # (1, 512)
+
+        result = embedding.squeeze().cpu().numpy()  # (512,) float32
+
+        # Sanity-check output shape
+        if result.shape != (512,):
+            logger.error("generate_embedding: unexpected output shape %s.", result.shape)
+            return None
+
+        return result
+
+    except Exception as exc:
+        logger.error("generate_embedding: inference failed: %s", exc)
+        return None
 
 
 def embeddings_to_list(embedding: np.ndarray) -> list:
     """Convert a numpy embedding to a plain Python list for JSON serialisation."""
-    return embedding.tolist() if embedding is not None else []
+    if embedding is None:
+        return []
+    try:
+        return embedding.tolist()
+    except Exception:
+        return []
 
 
 def list_to_embedding(data: list) -> np.ndarray:
@@ -103,14 +143,9 @@ def list_to_embedding(data: list) -> np.ndarray:
 
 
 def warmup() -> None:
-    """
-    Force-load the FaceNet model into memory.
-    Call once at startup to avoid slow first-inference latency.
-    """
-    import logging
-    logger = logging.getLogger(__name__)
+    """Force-load the FaceNet model into memory at startup."""
     try:
         _get_model()
         logger.info("FaceNet (InceptionResnetV1) warmed up.")
     except Exception as exc:
-        logger.warning("FaceNet warmup failed: %s", exc)
+        logger.warning("FaceNet warmup failed (non-fatal): %s", exc)

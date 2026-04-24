@@ -43,7 +43,7 @@ def create_app():
     app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB
 
     # Database config (SQLite for development / Raspberry Pi)
-    app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///database.db"
+    app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL", "sqlite:///database.db")
     app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
     # Enable WAL mode and a generous busy-timeout so the door-loop thread
     # and Flask request threads can both write without "database is locked" errors.
@@ -66,6 +66,8 @@ def create_app():
 
     # Ensure all tables exist (safe to call repeatedly  only creates missing ones)
     with app.app_context():
+        from app.models.user import User  # noqa: F401
+        from app.models.log import AccessLog  # noqa: F401
         from app.models.violation import ViolationImage  # noqa: F401
         db.create_all()
         # Enable WAL journal mode for better concurrent read/write performance

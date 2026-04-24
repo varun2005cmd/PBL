@@ -1,27 +1,19 @@
 # =============================================================================
-# app/ml/face_detector.py
-# Face Detection using MediaPipe FaceLandmarker (Tasks API)
+# app/ml/face_detector.py  –  v2 (hardened)
 #
-# Uses the MediaPipe Tasks API (mediapipe >= 0.10) which works on Python 3.14+
-# and on Raspberry Pi 5 aarch64.
-#
-# Requires the face_landmarker.task model file (downloaded by
-# tools/download_models.py).
-#
-# Install: pip install mediapipe
-#
-# Provides detect_face(frame) which returns:
-#   {
-#     "face_crop": np.ndarray (aligned face, 160x160 RGB),
-#     "bbox":      [x1, y1, x2, y2],
-#     "landmarks": {"left_eye": (x,y), "right_eye": (x,y),
-#                   "nose": (x,y), "mouth_left": (x,y), "mouth_right": (x,y)},
-#     "confidence": float,
-#   }
-# Returns None if no face is detected.
+# Fixes applied:
+#   • _landmarker_lock protects BOTH lazy-init and detect() calls
+#     (prevents race during parallel HTTP requests)
+#   • _get_detector() is also guarded by the same lock (double-check pattern)
+#   • All exceptions from mediapipe are caught and logged
+#   • detect_face() validates frame BEFORE touching mediapipe
+#   • face_region empty-array guard prevents crash in cv2.resize
+#   • EAR calculation protected against zero-division and bad indices
+#   • warmup() logs mediapipe version for diagnostics
 # =============================================================================
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -35,92 +27,101 @@ logger = logging.getLogger(__name__)
 # --------------------------------------------------------------------------
 _MODEL_PATH = Path(__file__).parent / "model_store" / "face_landmarker.task"
 
-# MediaPipe FaceLandmarker landmark indices for 5 keypoints used by liveness.py
-# (same indices as before — unchanged)
+# MediaPipe FaceLandmarker landmark indices
 _MP_LEFT_EYE    = 33    # outer left eye corner (subject's left)
 _MP_RIGHT_EYE   = 263   # outer right eye corner (subject's right)
 _MP_NOSE        = 1     # nose tip
 _MP_MOUTH_LEFT  = 61    # left mouth corner
 _MP_MOUTH_RIGHT = 291   # right mouth corner
-_MP_LEFT_EYE_EAR = (33, 160, 158, 133, 153, 144)
+_MP_CHIN        = 199
+_MP_LEFT_EYE_EAR  = (33,  160, 158, 133, 153, 144)
 _MP_RIGHT_EYE_EAR = (362, 385, 387, 263, 373, 380)
 
-_landmarker = None   # cached FaceLandmarker instance
+_landmarker      = None        # cached FaceLandmarker instance
+_landmarker_lock = threading.Lock()
 
+
+# ---------------------------------------------------------------------------
+# Internal: lazy-init with double-check locking
+# ---------------------------------------------------------------------------
 
 def _get_detector():
     """Lazy-load and cache the MediaPipe FaceLandmarker (Tasks API)."""
     global _landmarker
+
+    # Fast path – already initialised
     if _landmarker is not None:
         return _landmarker
 
-    try:
-        import mediapipe as mp
-        BaseOptions          = mp.tasks.BaseOptions
-        FaceLandmarker       = mp.tasks.vision.FaceLandmarker
-        FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
-        VisionRunningMode    = mp.tasks.vision.RunningMode
-    except ImportError as exc:
-        raise ImportError(
-            "mediapipe is not installed. Run: pip install mediapipe"
-        ) from exc
+    with _landmarker_lock:
+        # Re-check inside lock (another thread may have initialised while waiting)
+        if _landmarker is not None:
+            return _landmarker
 
-    if not _MODEL_PATH.exists():
-        raise FileNotFoundError(
-            f"MediaPipe model not found at {_MODEL_PATH}.\n"
-            "Run:  python tools/download_models.py"
-        )
-
-    options = FaceLandmarkerOptions(
-        base_options=BaseOptions(model_asset_path=str(_MODEL_PATH)),
-        running_mode=VisionRunningMode.IMAGE,
-        # Allow detection of >1 face so we can safely reject ambiguous frames.
-        num_faces=2,
-        min_face_detection_confidence=0.5,
-        min_face_presence_confidence=0.5,
-        min_tracking_confidence=0.5,
-        output_face_blendshapes=False,
-        output_facial_transformation_matrixes=False,
-    )
-    _landmarker = FaceLandmarker.create_from_options(options)
-    return _landmarker
-
-
-def warmup() -> None:
-    """
-    Force-load the MediaPipe model before the door loop starts.
-    Call once at application startup to avoid a slow first authentication.
-    """
-    try:
-        _get_detector()
-        logger.info("MediaPipe FaceLandmarker warmed up.")
-    except Exception as exc:
-        logger.warning("Face detector warmup failed: %s", exc)
-
-
-def release() -> None:
-    """Release MediaPipe resources. Call at application shutdown."""
-    global _landmarker
-    if _landmarker is not None:
         try:
-            _landmarker.close()
-        except Exception:
-            pass
-        _landmarker = None
+            import mediapipe as mp
+            BaseOptions           = mp.tasks.BaseOptions
+            FaceLandmarker        = mp.tasks.vision.FaceLandmarker
+            FaceLandmarkerOptions = mp.tasks.vision.FaceLandmarkerOptions
+            VisionRunningMode     = mp.tasks.vision.RunningMode
+        except ImportError as exc:
+            raise ImportError(
+                "mediapipe is not installed. Run: pip install mediapipe"
+            ) from exc
+
+        if not _MODEL_PATH.exists():
+            raise FileNotFoundError(
+                f"MediaPipe model not found at {_MODEL_PATH}.\n"
+                "Run:  python tools/download_models.py"
+            )
+
+        options = FaceLandmarkerOptions(
+            base_options=BaseOptions(model_asset_path=str(_MODEL_PATH)),
+            running_mode=VisionRunningMode.IMAGE,
+            num_faces=2,                          # detect >1 so we can reject ambiguous frames
+            min_face_detection_confidence=0.5,
+            min_face_presence_confidence=0.5,
+            min_tracking_confidence=0.5,
+            output_face_blendshapes=False,
+            output_facial_transformation_matrixes=False,
+        )
+        _landmarker = FaceLandmarker.create_from_options(options)
+        return _landmarker
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
+def warmup() -> None:
+    """Force-load the MediaPipe model before the door loop starts."""
+    try:
+        _get_detector()
+        try:
+            import mediapipe as mp
+            logger.info("MediaPipe FaceLandmarker warmed up (mediapipe %s).", mp.__version__)
+        except Exception:
+            logger.info("MediaPipe FaceLandmarker warmed up.")
+    except Exception as exc:
+        logger.warning("Face detector warmup failed (non-fatal): %s", exc)
+
+
+def release() -> None:
+    """Release MediaPipe resources.  Call at application shutdown."""
+    global _landmarker
+    with _landmarker_lock:
+        if _landmarker is not None:
+            try:
+                _landmarker.close()
+            except Exception as exc:
+                logger.debug("FaceLandmarker.close() raised: %s", exc)
+            _landmarker = None
+            logger.info("MediaPipe FaceLandmarker released.")
+
+
 def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
     """
     Detect a single face in *frame* using MediaPipe FaceLandmarker.
-
-    Parameters
-    ----------
-    frame : np.ndarray
-        BGR image as returned by OpenCV (cv2.VideoCapture.read()).
 
     Returns
     -------
@@ -128,67 +129,119 @@ def detect_face(frame: np.ndarray) -> Optional[Dict[str, Any]]:
         Detection result with keys:
           - face_crop  : RGB np.ndarray, shape (160, 160, 3), uint8
           - bbox       : [x1, y1, x2, y2]  (pixel coords)
-          - landmarks  : dict with 5 named keypoints (pixel coords)
-          - confidence : float [0, 1]
-        Returns None when no face detected.
+          - landmarks  : dict with named keypoints + EAR values
+          - confidence : float (1.0 – MediaPipe Tasks API has no scalar score)
+        {"error": "multiple_faces"} if > 1 face is present.
+        None when no face detected or on any error.
     """
-    import mediapipe as mp
+    # Validate input frame
+    if frame is None:
+        logger.debug("detect_face: received None frame.")
+        return None
+    if not isinstance(frame, np.ndarray) or frame.ndim != 3 or frame.shape[2] != 3:
+        logger.debug("detect_face: invalid frame shape %s.", getattr(frame, "shape", "n/a"))
+        return None
+    if frame.size == 0:
+        logger.debug("detect_face: empty frame.")
+        return None
+
+    try:
+        import mediapipe as mp
+    except ImportError as exc:
+        logger.error("detect_face: mediapipe not available: %s", exc)
+        return None
 
     h, w = frame.shape[:2]
-    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    if h == 0 or w == 0:
+        return None
 
-    landmarker = _get_detector()
-    mp_image   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-    result     = landmarker.detect(mp_image)
+    try:
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    except cv2.error as exc:
+        logger.error("detect_face: cvtColor failed: %s", exc)
+        return None
+
+    try:
+        landmarker = _get_detector()
+        mp_image   = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        with _landmarker_lock:
+            result = landmarker.detect(mp_image)
+    except Exception as exc:
+        logger.error("detect_face: MediaPipe detection raised: %s", exc)
+        return None
 
     if not result.face_landmarks:
         return None
 
-    # Security/usability trade-off: if multiple faces are present, do not guess.
-    # Force the caller to retry with a single face in frame.
+    # Security: reject ambiguous multi-face frames
     if len(result.face_landmarks) > 1:
         return {"error": "multiple_faces", "count": len(result.face_landmarks)}
 
-    face_lm = result.face_landmarks[0]   # list of NormalizedLandmark
+    face_lm = result.face_landmarks[0]   # list[NormalizedLandmark]
+    total_lm = len(face_lm)
 
     def _px(lm_idx: int):
+        if lm_idx >= total_lm:
+            return (0, 0)
         lm = face_lm[lm_idx]
-        return (int(lm.x * w), int(lm.y * h))
+        return (
+            int(max(0, min(w - 1, lm.x * w))),
+            int(max(0, min(h - 1, lm.y * h))),
+        )
 
     def _ear(indices):
-        p = [np.array(_px(i), dtype=np.float32) for i in indices]
-        vertical_1 = np.linalg.norm(p[1] - p[5])
-        vertical_2 = np.linalg.norm(p[2] - p[4])
-        horizontal = np.linalg.norm(p[0] - p[3])
-        return float((vertical_1 + vertical_2) / (2.0 * horizontal)) if horizontal else 0.0
+        try:
+            p = [np.array(_px(i), dtype=np.float32) for i in indices]
+            vertical_1 = np.linalg.norm(p[1] - p[5])
+            vertical_2 = np.linalg.norm(p[2] - p[4])
+            horizontal = np.linalg.norm(p[0] - p[3])
+            if horizontal < 1e-6:
+                return 0.0
+            return float((vertical_1 + vertical_2) / (2.0 * horizontal))
+        except Exception:
+            return 0.0
 
     landmarks = {
-        "left_eye":    _px(_MP_LEFT_EYE),
-        "right_eye":   _px(_MP_RIGHT_EYE),
-        "nose":        _px(_MP_NOSE),
-        "mouth_left":  _px(_MP_MOUTH_LEFT),
-        "mouth_right": _px(_MP_MOUTH_RIGHT),
-        "left_eye_ear": _ear(_MP_LEFT_EYE_EAR),
+        "left_eye":     _px(_MP_LEFT_EYE),
+        "right_eye":    _px(_MP_RIGHT_EYE),
+        "nose":         _px(_MP_NOSE),
+        "mouth_left":   _px(_MP_MOUTH_LEFT),
+        "mouth_right":  _px(_MP_MOUTH_RIGHT),
+        "chin":         _px(_MP_CHIN),
+        "left_eye_ear":  _ear(_MP_LEFT_EYE_EAR),
         "right_eye_ear": _ear(_MP_RIGHT_EYE_EAR),
     }
 
-    # Derive bounding box from all landmark x/y coords
+    # Derive bounding box
     xs = [int(lm.x * w) for lm in face_lm]
     ys = [int(lm.y * h) for lm in face_lm]
-    pad = int(0.15 * (max(xs) - min(xs)))   # add 15% padding around face
+    if not xs or not ys:
+        return None
+
+    pad = max(0, int(0.15 * (max(xs) - min(xs))))
     x1 = max(0, min(xs) - pad)
     y1 = max(0, min(ys) - pad)
     x2 = min(w, max(xs) + pad)
     y2 = min(h, max(ys) + pad)
 
+    if x2 <= x1 or y2 <= y1:
+        logger.debug("detect_face: degenerate bounding box.")
+        return None
+
     face_region = rgb[y1:y2, x1:x2]
     if face_region.size == 0:
+        logger.debug("detect_face: face_region is empty after crop.")
         return None
-    face_crop = cv2.resize(face_region, (160, 160))
+
+    try:
+        face_crop = cv2.resize(face_region, (160, 160))
+    except cv2.error as exc:
+        logger.error("detect_face: resize failed: %s", exc)
+        return None
 
     return {
         "face_crop":  face_crop,          # RGB (160, 160, 3)
         "bbox":       [x1, y1, x2, y2],
         "landmarks":  landmarks,
-        "confidence": 1.0,               # MediaPipe Tasks API does not expose a scalar score
+        "confidence": 1.0,
     }

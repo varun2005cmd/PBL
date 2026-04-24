@@ -2,27 +2,29 @@
 # =============================================================================
 # run_pi.py
 # Raspberry Pi 5 – Combined launcher
-#
-# Starts two things in one process:
-#   1. Flask HTTP server (API + dashboard backend) on port 5000
-#   2. Physical door loop (camera -> ML pipeline -> LCD + servo)
-#
-# Usage:
-#   cd backend
-#   python run_pi.py
-#
-# Environment variables (all optional):
-#   CAMERA_INDEX   USB camera device index (default: 0)
-#   CAMERA_WIDTH   Capture width  in pixels (default: 1280)
-#   CAMERA_HEIGHT  Capture height in pixels (default: 720)
-#   CAMERA_FPS     Capture frame rate       (default: 30)
-#   FLASK_HOST     IP to bind Flask to      (default: 0.0.0.0)
-#   FLASK_PORT     Port for Flask           (default: 5000)
 # =============================================================================
 
-import logging
 import os
+import sys
+
+# ---------------------------------------------------------------------------
+# CRITICAL FIX: STRANGLE C++ THREAD CONTENTION
+# Must be set BEFORE importing numpy, cv2, torch, or mediapipe.
+# Prevents segmentation faults and CPU spiking on Raspberry Pi 5.
+# ---------------------------------------------------------------------------
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
+os.environ["NUMEXPR_NUM_THREADS"] = "1"
+os.environ["BLIS_NUM_THREADS"] = "1"
+
+import logging
 import threading
+import cv2
+
+# Force OpenCV to run single-threaded (prevents TBB/pthread contention)
+cv2.setNumThreads(1)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -30,24 +32,25 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-
 def main():
     from app.app import create_app
     from app.models import db
 
     app = create_app()
 
-    # Ensure DB tables exist once before threads start
+    # Ensure DB tables exist
     with app.app_context():
         db.create_all()
 
     # ------------------------------------------------------------------
-    # Warm up ML models BEFORE starting the door loop thread so the first
-    # real authentication attempt is not penalised by model-load latency.
-    # FaceNet (~100 MB) and MediaPipe are loaded into memory here once.
+    # Warm up ML models strictly on the main thread
     # ------------------------------------------------------------------
-    logger.info("Warming up ML models (this may take 20-40 s on first run) …")
+    logger.info("Warming up ML models (this may take 20-40 s) …")
     try:
+        import torch
+        # Force PyTorch CPU backend to single-thread mode
+        torch.set_num_threads(1)
+        
         from app.ml.face_detector import warmup as detector_warmup
         from app.ml.embedder import warmup as embedder_warmup
         detector_warmup()
@@ -71,15 +74,13 @@ def main():
     logger.info("Door loop thread started.")
 
     # ------------------------------------------------------------------
-    # Thread 2: Flask HTTP server (blocking – runs in main thread)
+    # Thread 2: Flask HTTP server
     # ------------------------------------------------------------------
     host = os.environ.get("FLASK_HOST", "0.0.0.0")
     port = int(os.environ.get("FLASK_PORT", "5000"))
 
     logger.info("Starting Flask server on %s:%d …", host, port)
-    # use_reloader=False is required when running inside a thread
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
-
 
 if __name__ == "__main__":
     main()

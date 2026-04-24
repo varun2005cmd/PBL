@@ -13,12 +13,11 @@ sudo apt-get install -y \
 python3 -m venv venv
 source venv/bin/activate
 python -m pip install --upgrade pip wheel setuptools
-python -m pip install torch==2.2.2 torchvision==0.17.2 --index-url https://download.pytorch.org/whl/cpu
+python -m pip install torch==2.3.1 torchvision==0.18.1 --index-url https://download.pytorch.org/whl/cpu
 python -m pip install --extra-index-url https://www.piwheels.org/simple mediapipe || true
 python -m pip install -r requirements.txt
 
 python backend/tools/download_models.py || true
-python init_db.py
 
 mkdir -p backend/logs backend/data/violations
 if [ ! -f .env ]; then

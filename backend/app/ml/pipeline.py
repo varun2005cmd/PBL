@@ -1,43 +1,29 @@
 # =============================================================================
-# app/ml/pipeline.py
-# Main Authentication Pipeline
+# app/ml/pipeline.py  –  v3 (Bulletproof)
 #
-# authenticate_user() is the single entry-point used by the REST endpoint.
-# It orchestrates:
-#   1. Face detection          (MediaPipe FaceLandmarker Tasks API)
-#   2. Liveness verification   (solvePnP yaw-based challenge-response)
-#   3. Embedding generation    (FaceNet / InceptionResnetV1)
-#   4. Identity recognition    (SVM + Euclidean distance)
-#
-# The function returns a JSON-serialisable dict:
-#   {
-#     "status":     "granted" | "denied",
-#     "user":       "<name>" | "unknown",
-#     "liveness":   true | false,
-#     "confidence": <float 01>,
-#     "detail":     "<human-readable explanation>"
-#   }
-#
-# All heavy dependencies are imported lazily; the module can be imported
-# at startup without blocking on model downloads.
+# Fixes applied:
+#   • Removed ThreadPoolExecutor (causes C++ extension segfaults on Pi 5)
+#   • Execution is now strictly sequential on the calling thread.
+#   • Relies on internal timeouts in camera.py and liveness.py to prevent hangs.
+#   • Completely eliminates thread contention between OpenCV, Mediapipe, and Torch.
 # =============================================================================
 
 from __future__ import annotations
 
-import time
 import logging
+import os
+import time
 from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
 
 from app.ml.face_detector import detect_face
-from app.ml.liveness     import check_liveness
-from app.ml.embedder     import generate_embedding, list_to_embedding
-from app.ml.recognizer   import recognize_user
+from app.ml.liveness      import check_liveness
+from app.ml.embedder      import generate_embedding
+from app.ml.recognizer    import recognize_user
 
 logger = logging.getLogger(__name__)
-
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -52,91 +38,91 @@ def authenticate_user(
 ) -> Dict[str, Any]:
     """
     Full authentication pipeline for a single camera frame.
-
-    Parameters
-    ----------
-    frame : np.ndarray
-        BGR image as read by OpenCV from a camera or decoded JPEG/PNG.
-    challenge : str
-        The challenge direction issued earlier: ``"LEFT"`` or ``"RIGHT"``.
-    challenge_issued_at : float
-        ``time.time()`` value when the challenge was issued (for timeout check).
-    prototype_embeddings : dict
-        Enrolled user embeddings: ``{username: [emb, emb, ...]}``.
-        Each ``emb`` is a (512,) float32 np.ndarray.
-        Retrieved from the database by the route handler before calling this.
-
-    Returns
-    -------
-    dict  (JSON-serialisable)
-        {
-          "status":     "granted" | "denied",
-          "user":       str,
-          "liveness":   bool,
-          "confidence": float,
-          "detail":     str
-        }
+    Strictly sequential. No nested threading.
     """
+    start = time.monotonic()
+
     # ------------------------------------------------------------------
     # Stage 1  Face Detection
     # ------------------------------------------------------------------
-    detection = detect_face(frame)
+    try:
+        detection = detect_face(frame)
+    except Exception as exc:
+        logger.error("Stage 1 detection raised: %s", exc)
+        return _denied("detection_error", "Face detection failed internally.", liveness=False)
 
     if detection is None:
         return _denied("no_face", "No face detected in the frame.", liveness=False)
 
     if isinstance(detection, dict) and detection.get("error") == "multiple_faces":
-        return _denied(
-            "multiple_faces",
-            "Multiple faces detected. Please ensure only one face is in the frame.",
-            liveness=False,
-        )
+        return _denied("multiple_faces", "Multiple faces detected. Please ensure only one face is in the frame.", liveness=False)
 
-    face_crop  = detection["face_crop"]    # (160, 160, 3) RGB
-    landmarks  = detection["landmarks"]
-    det_conf   = detection["confidence"]
-    logger.debug("Face detected. MediaPipe confidence=%.3f", det_conf)
+    if not isinstance(detection, dict):
+        return _denied("invalid_detection", "Invalid face detection output.", liveness=False)
+
+    face_crop = detection.get("face_crop")
+    landmarks = detection.get("landmarks")
+
+    if face_crop is None or not isinstance(landmarks, dict):
+        return _denied("invalid_detection", "Incomplete face detection output.", liveness=False)
+
+    logger.debug("Stage 1 OK (%.2f s)", time.monotonic() - start)
 
     # ------------------------------------------------------------------
     # Stage 2  Liveness Check
-    # Set NO_LIVENESS=1 env var to skip liveness (useful for quick testing)
     # ------------------------------------------------------------------
-    import os as _os
-    if _os.environ.get("NO_LIVENESS", "0") == "1":
+    if os.environ.get("NO_LIVENESS", "0") == "1":
         liveness_result = {"passed": True, "yaw": 0.0, "reason": "Liveness skipped (NO_LIVENESS=1)"}
     else:
-        liveness_result = check_liveness(
-            frame=frame,
-            challenge=challenge,
-            landmarks=landmarks,
-            challenge_issued_at=challenge_issued_at,
-            frames=liveness_frames,
-        )
+        try:
+            liveness_result = check_liveness(
+                frame=frame,
+                challenge=challenge,
+                landmarks=landmarks,
+                challenge_issued_at=challenge_issued_at,
+                frames=liveness_frames,
+            )
+        except Exception as exc:
+            logger.error("Stage 2 liveness raised: %s", exc)
+            return _denied("liveness_error", "Liveness check failed internally.", liveness=False)
 
-    if not liveness_result["passed"]:
-        return _denied(
-            "liveness_fail",
-            liveness_result["reason"],
-            liveness=False,
-        )
+    if not isinstance(liveness_result, dict) or not liveness_result.get("passed"):
+        reason = liveness_result.get("reason", "Liveness check failed.") if isinstance(liveness_result, dict) else "Liveness check failed."
+        return _denied("liveness_fail", reason, liveness=False)
 
-    logger.debug("Liveness passed. Yaw=%.1f", liveness_result["yaw"])
+    logger.debug("Stage 2 OK (%.2f s)", time.monotonic() - start)
 
     # ------------------------------------------------------------------
     # Stage 3  Embedding Generation
     # ------------------------------------------------------------------
-    embedding = generate_embedding(face_crop)
+    try:
+        embedding = generate_embedding(face_crop)
+    except Exception as exc:
+        logger.error("Stage 3 embedding raised: %s", exc)
+        return _denied("embedding_error", "Could not generate face embedding.", liveness=True)
 
     if embedding is None:
         return _denied("embedding_fail", "Could not generate face embedding.", liveness=True)
 
+    logger.debug("Stage 3 OK (%.2f s)", time.monotonic() - start)
+
     # ------------------------------------------------------------------
     # Stage 4  Identity Recognition
     # ------------------------------------------------------------------
-    recognition = recognize_user(embedding, prototype_embeddings)
-    user       = recognition["user"]
-    confidence = recognition["confidence"]
-    distance   = recognition["distance"]
+    try:
+        recognition = recognize_user(embedding, prototype_embeddings)
+    except Exception as exc:
+        logger.error("Stage 4 recognition raised: %s", exc)
+        return _denied("recognition_error", "Face recognition failed (internal error).", liveness=True)
+
+    user       = str(recognition.get("user")       or "unknown")
+    confidence = float(recognition.get("confidence") or 0.0)
+    distance   = float(recognition.get("distance")   or 9.9)
+
+    logger.debug(
+        "Stage 4 OK: user=%s confidence=%.3f distance=%.3f (%.2f s)",
+        user, confidence, distance, time.monotonic() - start,
+    )
 
     if user == "unknown":
         return {
@@ -144,10 +130,7 @@ def authenticate_user(
             "user":       "unknown",
             "liveness":   True,
             "confidence": 0.0,
-            "detail":     (
-                f"Face not recognised (distance={distance:.3f}, "
-                f"threshold={0.9})."
-            ),
+            "detail":     f"Face not recognised (distance={distance:.3f}, threshold=0.9).",
         }
 
     logger.info("Access granted: user=%s confidence=%.3f", user, confidence)
@@ -161,25 +144,18 @@ def authenticate_user(
 
 
 def decode_frame(image_bytes: bytes) -> Optional[np.ndarray]:
-    """
-    Decode a raw JPEG/PNG byte payload into an OpenCV BGR ndarray.
-
-    Use this in the route handler to convert ``request.data`` or a
-    multipart file upload into a frame suitable for ``authenticate_user()``.
-
-    Parameters
-    ----------
-    image_bytes : bytes
-        Raw image bytes (JPEG / PNG / BMP).
-
-    Returns
-    -------
-    np.ndarray | None
-        BGR frame, or None if decoding fails.
-    """
-    nparr = np.frombuffer(image_bytes, np.uint8)
-    frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-    return frame if frame is not None and frame.size > 0 else None
+    """Decode a raw JPEG/PNG byte payload into an OpenCV BGR ndarray."""
+    if not image_bytes:
+        return None
+    try:
+        nparr = np.frombuffer(image_bytes, np.uint8)
+        frame = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        if frame is None or frame.size == 0:
+            return None
+        return frame
+    except Exception as exc:
+        logger.error("decode_frame: exception: %s", exc)
+        return None
 
 
 def enroll_user(
@@ -187,40 +163,43 @@ def enroll_user(
     username: str,
 ) -> Dict[str, Any]:
     """
-    Compute embeddings for a list of enrollment frames for a new user.
-
-    Typically called with 310 frames captured during on-boarding.
-    The caller is responsible for persisting the returned embeddings to DB.
-
-    Parameters
-    ----------
-    frames : list of np.ndarray
-        BGR frames captured during enrollment.
-    username : str
-        Identity label for this user.
-
-    Returns
-    -------
-    dict
-        {
-          "ok": bool,
-          "username": str,
-          "embeddings": [[float, ...], ...],   # list of 512-D lists
-          "count": int,
-          "message": str
-        }
+    Compute embeddings for a list of enrollment frames.
+    Strictly sequential processing.
     """
+    if not frames:
+        return {
+            "ok": False, "username": username,
+            "embeddings": [], "count": 0,
+            "message": "No frames provided for enrollment.",
+        }
+
     from app.ml.embedder import embeddings_to_list
 
     embeddings_list = []
     failed = 0
 
     for frame in frames:
-        det = detect_face(frame)
-        if det is None:
+        if frame is None:
             failed += 1
             continue
-        emb = generate_embedding(det["face_crop"])
+
+        try:
+            det = detect_face(frame)
+        except Exception:
+            failed += 1
+            continue
+
+        if not isinstance(det, dict) or det.get("error"):
+            failed += 1
+            continue
+
+        crop = det.get("face_crop")
+        try:
+            emb = generate_embedding(crop)
+        except Exception:
+            failed += 1
+            continue
+
         if emb is not None:
             embeddings_list.append(embeddings_to_list(emb))
         else:
@@ -228,35 +207,31 @@ def enroll_user(
 
     if not embeddings_list:
         return {
-            "ok":         False,
-            "username":   username,
-            "embeddings": [],
-            "count":      0,
-            "message":    f"No valid faces found in any of {len(frames)} frames.",
+            "ok": False, "username": username,
+            "embeddings": [], "count": 0,
+            "message": f"No valid faces found in any of {len(frames)} frames.",
         }
 
+    logger.info(
+        "Enrollment complete: user=%s embeddings=%d failed=%d",
+        username, len(embeddings_list), failed,
+    )
     return {
         "ok":         True,
         "username":   username,
         "embeddings": embeddings_list,
         "count":      len(embeddings_list),
-        "message":    (
-            f"Enrolled {len(embeddings_list)} embeddings "
-            f"({failed} frames skipped)."
-        ),
+        "message":    f"Enrolled {len(embeddings_list)} embeddings ({failed} frames skipped).",
     }
 
-
-# ---------------------------------------------------------------------------
-# Internal helpers
-# ---------------------------------------------------------------------------
 
 def _denied(
     reason_code: str,
     detail: str,
     liveness: bool = False,
 ) -> Dict[str, Any]:
-    """Construct a standardised 'denied' response."""
+    """Construct a standardised 'denied' response dict."""
+    logger.info("Auth denied: code=%s detail=%s", reason_code, detail)
     return {
         "status":     "denied",
         "user":       "unknown",

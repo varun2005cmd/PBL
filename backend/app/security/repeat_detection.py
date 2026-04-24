@@ -11,6 +11,7 @@ import cv2
 from app.models.log import AccessLog
 from app.models.user import User
 from app.models.violation import ViolationImage
+from app.models import db
 
 REPEAT_WINDOW_MINUTES = int(os.environ.get("REPEAT_WINDOW_MINUTES", "10"))
 REPEAT_THRESHOLD = int(os.environ.get("REPEAT_THRESHOLD", "5"))
@@ -26,19 +27,32 @@ def apply_repeat_policy(
     db,
     capture_frames: Optional[Iterable] = None,
 ) -> Dict[str, Any]:
-    """Deny repeat grants for the same user and persist evidence images."""
-    if result.get("status") != "granted" or not result.get("user"):
+    """Track repetitive unauthorized attempts and persist evidence."""
+    status = str(result.get("status") or "denied")
+    user_name = str(result.get("user") or "unknown")
+
+    # If granted, we do not log an intruder violation.
+    if status == "granted":
         return result
 
-    user = User.query.filter_by(name=result["user"]).first()
-    if not user:
-        return result
+    # Ensure an "unknown" user exists in DB to satisfy the Foreign Key constraint
+    if user_name == "unknown":
+        user = User.query.filter_by(name="unknown").first()
+        if not user:
+            user = User(name="unknown", active=False, enrolled=False)
+            db.session.add(user)
+            db.session.commit()
+    else:
+        user = User.query.filter_by(name=user_name).first()
+        if not user:
+            return result
 
+    # Check for recent unauthorized attempts
     cutoff = datetime.now().astimezone() - timedelta(minutes=REPEAT_WINDOW_MINUTES)
     recent_count = (
         AccessLog.query
         .filter(AccessLog.user == user.name)
-        .filter(AccessLog.status == "granted")
+        .filter(AccessLog.status == "denied")
         .filter(AccessLog.timestamp >= cutoff.isoformat(timespec="seconds"))
         .count()
     )
@@ -46,6 +60,7 @@ def apply_repeat_policy(
     if recent_count + 1 < REPEAT_THRESHOLD:
         return result
 
+    # Trigger Violation Image Capture
     timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
     safe_stamp = timestamp.replace(":", "-")
     group_id = f"{user.id}_{safe_stamp}"
@@ -65,8 +80,8 @@ def apply_repeat_policy(
         "repeatViolation": True,
         "violationImages": evidence_paths,
         "detail": (
-            f"Repeat access policy triggered for {user.name}: "
-            f"{recent_count + 1} appearances within {REPEAT_WINDOW_MINUTES} minutes."
+            f"Intruder Alert: "
+            f"{recent_count + 1} unauthorized attempts within {REPEAT_WINDOW_MINUTES} mins."
         ),
     })
     return result

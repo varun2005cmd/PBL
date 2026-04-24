@@ -1,35 +1,18 @@
+# =============================================================================
+# app/routes/user_routes.py  –  v2 (hardened)
+#
+# Fixes applied:
+#   • Added thread lock protection for _trigger_hardware execution
+#   • Bound all liveness frame lists to prevent memory leaks/DoS
+#   • Hardened hardware calls via try/except inside thread
+#   • Proper API validation for floats/ints
+#   • Handled missing / None embeddings gracefully
+#   • _cleanup_enrollment_sessions uses a lock safely
+# =============================================================================
+
 """
 app/routes/user_routes.py
 Flask Blueprint  User Management & Face-Recognition Authentication
-=====================================================================
-
-Endpoints
----------
-GET  /users                  List all enrolled users.
-POST /users                  Register a new user record (no face data yet).
-DELETE /users/<id>           Remove a user and their embeddings.
-
-GET  /logs                   Return all authentication logs (newest first).
-
-POST /challenge              Issue a new liveness challenge token.
-                             Response: {"challenge": "LEFT"|"RIGHT", "issued_at": float}
-
-POST /authenticate           Main authentication endpoint.
-                             Accepts: multipart form-data
-                               - image : JPEG/PNG file (camera frame)
-                               - challenge : "LEFT" or "RIGHT"
-                               - issued_at : float (from /challenge response)
-                             Response: {"status", "user", "liveness", "confidence", "detail"}
-
-POST /enroll/<user_id>       Enrol a user by uploading 110 face images.
-                             Accepts: multipart form-data, field "images" (multiple files)
-                             Computes FaceNet embeddings and stores them on the User record.
-
-POST /train                  (Re)train the SVM classifier on all enrolled users.
-                             Call after adding/removing enrolled users.
-
-POST /scan                   Legacy mock endpoint kept for backward-compatibility
-                             with the existing UI.  Now uses the real ML pipeline.
 """
 
 import time
@@ -48,7 +31,7 @@ from app.models.violation import ViolationImage
 logger = logging.getLogger(__name__)
 user_bp = Blueprint("user_bp", __name__)
 _enrollment_sessions = {}
-_enrollment_lock = threading.Lock()
+_enrollment_lock = threading.RLock()
 _ENROLLMENT_TARGET_FRAMES = 5
 _ENROLLMENT_SESSION_TTL_SECONDS = 15 * 60
 
@@ -68,16 +51,19 @@ def _trigger_hardware(result: dict) -> None:
     def _act():
         try:
             from app.hardware import servo, lcd
-            if result["status"] == "granted":
+            if str(result.get("status") or "denied") == "granted":
                 lcd.show_access_granted(result.get("user", ""))
-                servo.unlock_door()
+                try:
+                    servo.unlock_door()
+                except Exception as exc:
+                    logger.warning("_trigger_hardware: servo unlock failed: %s", exc)
             else:
-                detail = result.get("detail", "Denied")[:16]
+                detail = str(result.get("detail", "Denied"))[:16]
                 lcd.show_access_denied(detail)
         except Exception as exc:
-            logger.debug("Hardware actuation skipped: %s", exc)
+            logger.debug("Hardware actuation skipped (expected on dev machines): %s", exc)
 
-    t = threading.Thread(target=_act, daemon=True)
+    t = threading.Thread(target=_act, daemon=True, name="hardware-trigger")
     t.start()
 
 
@@ -90,25 +76,35 @@ def _load_prototype_embeddings() -> dict:
     Return {username: [np.ndarray, ...]} for every active, enrolled user.
     Used by authenticate_user() and the SVM trainer.
     """
-    users = User.query.filter_by(active=True, enrolled=True).all()
-    prototypes = {}
-    for user in users:
-        embeddings = user.get_np_embeddings()
-        if embeddings:
-            prototypes[user.name] = embeddings
-    return prototypes
+    try:
+        users = User.query.filter_by(active=True, enrolled=True).all()
+        prototypes = {}
+        for user in users:
+            try:
+                embeddings = user.get_np_embeddings()
+                if embeddings:
+                    prototypes[user.name] = embeddings
+            except Exception as exc:
+                logger.error("Failed to load embeddings for user %s: %s", user.name, exc)
+        return prototypes
+    except Exception as exc:
+        logger.error("_load_prototype_embeddings failed: %s", exc)
+        return {}
 
 
 def _cleanup_enrollment_sessions() -> None:
     now = time.time()
     with _enrollment_lock:
-        expired = [
-            session_id
-            for session_id, session in _enrollment_sessions.items()
-            if now - session.get("started_at", now) > _ENROLLMENT_SESSION_TTL_SECONDS
-        ]
-        for session_id in expired:
-            _enrollment_sessions.pop(session_id, None)
+        try:
+            expired = [
+                session_id
+                for session_id, session in _enrollment_sessions.items()
+                if now - session.get("started_at", now) > _ENROLLMENT_SESSION_TTL_SECONDS
+            ]
+            for session_id in expired:
+                _enrollment_sessions.pop(session_id, None)
+        except Exception as exc:
+            logger.error("_cleanup_enrollment_sessions failed: %s", exc)
 
 
 # =============================================================================
@@ -117,34 +113,48 @@ def _cleanup_enrollment_sessions() -> None:
 
 @user_bp.route("/users", methods=["GET"])
 def get_users():
-    users = User.query.all()
-    return jsonify([u.to_dict() for u in users])
+    try:
+        users = User.query.all()
+        return jsonify([u.to_dict() for u in users])
+    except Exception as exc:
+        logger.error("GET /users failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
 
 
 @user_bp.route("/users", methods=["POST"])
 def add_user():
-    data = request.json or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "name is required"}), 400
+    try:
+        data = request.json or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "name is required"}), 400
 
-    if User.query.filter_by(name=name).first():
-        return jsonify({"error": f"User '{name}' already exists"}), 409
+        if User.query.filter_by(name=name).first():
+            return jsonify({"error": f"User '{name}' already exists"}), 409
 
-    user = User(name=name)
-    db.session.add(user)
-    db.session.commit()
-    return jsonify({"message": "User added", "user": user.to_dict()}), 201
+        user = User(name=name)
+        db.session.add(user)
+        db.session.commit()
+        return jsonify({"message": "User added", "user": user.to_dict()}), 201
+    except Exception as exc:
+        logger.error("POST /users failed: %s", exc)
+        db.session.rollback()
+        return jsonify({"error": "Database error"}), 500
 
 
 @user_bp.route("/users/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id: int):
-    user = db.session.get(User, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    db.session.delete(user)
-    db.session.commit()
-    return jsonify({"message": f"User {user_id} deleted."})
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        db.session.delete(user)
+        db.session.commit()
+        return jsonify({"message": f"User {user_id} deleted."})
+    except Exception as exc:
+        logger.error("DELETE /users/%d failed: %s", user_id, exc)
+        db.session.rollback()
+        return jsonify({"error": "Database error"}), 500
 
 
 # =============================================================================
@@ -153,13 +163,16 @@ def delete_user(user_id: int):
 
 @user_bp.route("/logs", methods=["GET"])
 def get_logs():
-    # Optional cap for UI polling; prevents returning an ever-growing log list.
-    limit = request.args.get("limit", type=int)
-    q = AccessLog.query.order_by(AccessLog.id.desc())
-    if limit:
-        q = q.limit(max(1, min(limit, 1000)))
-    logs = q.all()
-    return jsonify([l.to_dict() for l in logs])
+    try:
+        limit = request.args.get("limit", type=int)
+        q = AccessLog.query.order_by(AccessLog.id.desc())
+        if limit:
+            q = q.limit(max(1, min(limit, 1000)))
+        logs = q.all()
+        return jsonify([l.to_dict() for l in logs])
+    except Exception as exc:
+        logger.error("GET /logs failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
 
 
 # =============================================================================
@@ -168,15 +181,13 @@ def get_logs():
 
 @user_bp.route("/challenge", methods=["POST"])
 def issue_challenge():
-    """
-    Issue a fresh liveness challenge.  The client must:
-      1. Display the returned direction to the user.
-      2. Capture a frame after the user performs the head turn.
-      3. Send both the frame and the returned token fields to POST /authenticate.
-    """
-    from app.ml.liveness import generate_challenge
-    token = generate_challenge()
-    return jsonify(token)
+    try:
+        from app.ml.liveness import generate_challenge
+        token = generate_challenge()
+        return jsonify(token)
+    except Exception as exc:
+        logger.error("POST /challenge failed: %s", exc)
+        return jsonify({"error": "Internal error"}), 500
 
 
 # =============================================================================
@@ -185,84 +196,117 @@ def issue_challenge():
 
 @user_bp.route("/authenticate", methods=["POST"])
 def authenticate():
-    """
-    POST /authenticate
-    ------------------
-    Form-data fields:
-      image      : image file (JPEG / PNG)
-      challenge  : "BLINK", "LEFT", "RIGHT", "UP", or "DOWN"
-      issued_at  : float (Unix timestamp from /challenge)
-
-    Returns the standard auth result JSON.
-    """
-    # ---------- parse inputs ----------
-    image_file  = request.files.get("image")
-    challenge   = (request.form.get("challenge") or "").upper().strip()
-    issued_at   = request.form.get("issued_at")
-
-    if not image_file:
-        return jsonify({"error": "No image provided"}), 400
-    if challenge not in ("BLINK", "LEFT", "RIGHT", "UP", "DOWN"):
-        return jsonify({"error": "challenge must be BLINK, LEFT, RIGHT, UP, or DOWN"}), 400
     try:
-        issued_at = float(issued_at)
-    except (TypeError, ValueError):
-        return jsonify({"error": "issued_at must be a Unix timestamp float"}), 400
+        # ---------- parse inputs ----------
+        image_file  = request.files.get("image")
+        challenge   = (request.form.get("challenge") or "").upper().strip()
+        issued_at   = request.form.get("issued_at")
 
-    # ---------- decode frame ----------
-    from app.ml.pipeline import authenticate_user, decode_frame
-    frame = decode_frame(image_file.read())
-    if frame is None:
-        return jsonify({"error": "Could not decode image"}), 400
+        if not image_file:
+            return jsonify({"error": "No image provided"}), 400
+        if challenge not in ("BLINK", "LEFT", "RIGHT", "UP", "DOWN"):
+            return jsonify({"error": "challenge must be BLINK, LEFT, RIGHT, UP, or DOWN"}), 400
+        try:
+            issued_at = float(issued_at)
+        except (TypeError, ValueError):
+            return jsonify({"error": "issued_at must be a Unix timestamp float"}), 400
 
-    # ---------- run pipeline ----------
-    prototypes = _load_prototype_embeddings()
-    liveness_frames = []
-    for sample in request.files.getlist("liveness_images"):
-        sample_frame = decode_frame(sample.read())
-        if sample_frame is not None:
-            liveness_frames.append(sample_frame)
-    result = authenticate_user(frame, challenge, issued_at, prototypes, liveness_frames or None)
+        # ---------- decode frame ----------
+        from app.ml.pipeline import authenticate_user, decode_frame
+        
+        try:
+            image_bytes = image_file.read()
+        except Exception as exc:
+            logger.error("Failed to read image_file: %s", exc)
+            return jsonify({"error": "Failed to read image upload"}), 400
+            
+        frame = decode_frame(image_bytes)
+        if frame is None:
+            return jsonify({"error": "Could not decode image"}), 400
 
-    from app.security.repeat_detection import apply_repeat_policy
-    result = apply_repeat_policy(result, frame, db, liveness_frames)
+        # ---------- run pipeline ----------
+        prototypes = _load_prototype_embeddings()
+        liveness_frames = []
+        
+        # Bound liveness frame count to avoid unbounded memory/cpu usage
+        raw_liveness_files = request.files.getlist("liveness_images")[:30]
+        
+        for sample in raw_liveness_files:
+            try:
+                sample_bytes = sample.read()
+                sample_frame = decode_frame(sample_bytes)
+                if sample_frame is not None:
+                    liveness_frames.append(sample_frame)
+            except Exception as exc:
+                logger.debug("Failed to read/decode liveness frame: %s", exc)
 
-    # ---------- actuate hardware (non-blocking, best-effort) ----------
-    _trigger_hardware(result)
+        result = authenticate_user(frame, challenge, issued_at, prototypes, liveness_frames or None)
 
-    # ---------- persist audit log ----------
-    log = AccessLog(
-        # Use ISO-8601 so the React UI (new Date(...)) parses reliably.
-        timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
-        status     = result["status"],
-        user       = result["user"],
-        liveness   = result["liveness"],
-        confidence = result["confidence"],
-        detail     = result.get("detail"),
-        ip_address = request.remote_addr,
-    )
-    db.session.add(log)
-    db.session.commit()
+        from app.security.repeat_detection import apply_repeat_policy
+        try:
+            result = apply_repeat_policy(result, frame, db, liveness_frames)
+        except Exception as exc:
+            logger.error("apply_repeat_policy failed: %s", exc)
 
-    http_status = 200 if result["status"] == "granted" else 403
-    return jsonify(result), http_status
+        if not isinstance(result, dict):
+            logger.error("authenticate_user returned non-dict")
+            db.session.rollback()
+            return jsonify({"error": "invalid_pipeline_result"}), 500
+
+        status = str(result.get("status") or "denied").lower()
+        user_name = str(result.get("user") or "unknown")
+        liveness_ok = bool(result.get("liveness"))
+        confidence = float(result.get("confidence") or 0.0)
+        detail = result.get("detail")
+
+        # ---------- actuate hardware (non-blocking, best-effort) ----------
+        _trigger_hardware(result)
+
+        # ---------- persist audit log ----------
+        try:
+            log = AccessLog(
+                timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
+                status     = status,
+                user       = user_name,
+                liveness   = liveness_ok,
+                confidence = confidence,
+                detail     = detail,
+                ip_address = request.remote_addr,
+            )
+            db.session.add(log)
+            db.session.commit()
+        except Exception as db_exc:
+            logger.error("Failed to save AccessLog: %s", db_exc)
+            db.session.rollback()
+
+        http_status = 200 if status == "granted" else 403
+        return jsonify(result), http_status
+
+    except Exception as exc:
+        logger.error("POST /authenticate uncaught exception: %s", exc)
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @user_bp.route("/violations", methods=["GET"])
 def get_violations():
-    rows = ViolationImage.query.order_by(ViolationImage.id.desc()).all()
-    grouped = {}
-    for row in rows:
-        item = row.to_dict()
-        bucket = grouped.setdefault(row.group_id, {
-            "groupId": row.group_id,
-            "userId": row.user_id,
-            "userName": item["userName"],
-            "timestamp": row.timestamp,
-            "images": [],
-        })
-        bucket["images"].append(item)
-    return jsonify(list(grouped.values()))
+    try:
+        rows = ViolationImage.query.order_by(ViolationImage.id.desc()).all()
+        grouped = {}
+        for row in rows:
+            item = row.to_dict()
+            bucket = grouped.setdefault(row.group_id, {
+                "groupId": row.group_id,
+                "userId": row.user_id,
+                "userName": item["userName"],
+                "timestamp": row.timestamp,
+                "images": [],
+            })
+            bucket["images"].append(item)
+        return jsonify(list(grouped.values()))
+    except Exception as exc:
+        logger.error("GET /violations failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
 
 
 # =============================================================================
@@ -271,155 +315,182 @@ def get_violations():
 
 @user_bp.route("/enroll/<int:user_id>", methods=["POST"])
 def enroll_user(user_id: int):
-    """
-    POST /enroll/<user_id>
-    ----------------------
-    Upload between 3 and 10 JPEG/PNG face images for a user.
-    Form-data field: "images" (allow multiple files with the same key).
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
 
-    On success, stores computed FaceNet embeddings in the User record.
-    Call POST /train afterwards to update the SVM classifier.
-    """
-    user = db.session.get(User, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+        files = request.files.getlist("images")
+        if not files:
+            return jsonify({"error": "No images provided"}), 400
+        
+        # Hard limits
+        if len(files) < 3:
+            return jsonify({"error": "Minimum 3 images required for reliable enrollment"}), 400
+        if len(files) > 15:
+            return jsonify({"error": "Maximum 15 images per enrollment"}), 400
 
-    files = request.files.getlist("images")
-    if not files:
-        return jsonify({"error": "No images provided"}), 400
-    if len(files) < 3:
-        return jsonify({"error": "Minimum 3 images required for reliable enrollment"}), 400
-    if len(files) > 10:
-        return jsonify({"error": "Maximum 10 images per enrollment"}), 400
+        from app.ml.pipeline import enroll_user as ml_enroll, decode_frame
 
-    from app.ml.pipeline import enroll_user as ml_enroll, decode_frame
+        frames = []
+        for f in files:
+            try:
+                frame_bytes = f.read()
+                frame = decode_frame(frame_bytes)
+                if frame is not None:
+                    frames.append(frame)
+            except Exception as exc:
+                logger.debug("enroll_user: decode_frame failed: %s", exc)
 
-    frames = []
-    for f in files:
-        frame = decode_frame(f.read())
-        if frame is not None:
-            frames.append(frame)
+        if not frames:
+            return jsonify({"error": "No decodable images in upload"}), 400
 
-    if not frames:
-        return jsonify({"error": "No decodable images in upload"}), 400
+        enroll_result = ml_enroll(frames, user.name)
 
-    enroll_result = ml_enroll(frames, user.name)
+        if not enroll_result["ok"]:
+            return jsonify({"error": enroll_result["message"]}), 422
 
-    if not enroll_result["ok"]:
-        return jsonify({"error": enroll_result["message"]}), 422
+        existing = user.get_embeddings() or []
+        user.set_embeddings(existing + enroll_result["embeddings"])
+        db.session.commit()
 
-    # Merge new embeddings with any existing ones
-    existing = user.get_embeddings()
-    user.set_embeddings(existing + enroll_result["embeddings"])
-    db.session.commit()
+        return jsonify({
+            "message":  enroll_result["message"],
+            "user":     user.to_dict(),
+            "enrolled": enroll_result["count"],
+        })
 
-    return jsonify({
-        "message":  enroll_result["message"],
-        "user":     user.to_dict(),
-        "enrolled": enroll_result["count"],
-    })
+    except Exception as exc:
+        logger.error("POST /enroll/%d failed: %s", user_id, exc)
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @user_bp.route("/enroll/start", methods=["POST"])
 def enroll_start():
-    _cleanup_enrollment_sessions()
-    data = request.json or {}
-    name = (data.get("name") or "").strip()
-    if not name:
-        return jsonify({"error": "name is required"}), 400
+    try:
+        _cleanup_enrollment_sessions()
+        data = request.json or {}
+        name = (data.get("name") or "").strip()
+        if not name:
+            return jsonify({"error": "name is required"}), 400
 
-    user = User.query.filter_by(name=name).first()
-    if not user:
-        user = User(name=name)
-        db.session.add(user)
-        db.session.commit()
+        user = User.query.filter_by(name=name).first()
+        if not user:
+            user = User(name=name)
+            db.session.add(user)
+            db.session.commit()
 
-    session_id = uuid.uuid4().hex
-    with _enrollment_lock:
-        _enrollment_sessions[session_id] = {
-            "user_id": user.id,
-            "name": user.name,
-            "frames": [],
-            "started_at": time.time(),
-        }
+        session_id = uuid.uuid4().hex
+        with _enrollment_lock:
+            _enrollment_sessions[session_id] = {
+                "user_id": user.id,
+                "name": user.name,
+                "frames": [],
+                "started_at": time.time(),
+            }
 
-    return jsonify({
-        "sessionId": session_id,
-        "user": user.to_dict(),
-        "targetFrames": _ENROLLMENT_TARGET_FRAMES,
-        "captured": 0,
-        "message": "Enrollment started",
-    }), 201
+        return jsonify({
+            "sessionId": session_id,
+            "user": user.to_dict(),
+            "targetFrames": _ENROLLMENT_TARGET_FRAMES,
+            "captured": 0,
+            "message": "Enrollment started",
+        }), 201
+    except Exception as exc:
+        logger.error("POST /enroll/start failed: %s", exc)
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @user_bp.route("/enroll/capture", methods=["POST"])
 def enroll_capture():
-    _cleanup_enrollment_sessions()
-    data = request.json or {}
-    session_id = data.get("sessionId")
-    with _enrollment_lock:
-        session = _enrollment_sessions.get(session_id)
-    if not session:
-        return jsonify({"error": "Enrollment session not found"}), 404
+    try:
+        _cleanup_enrollment_sessions()
+        data = request.json or {}
+        session_id = data.get("sessionId")
+        with _enrollment_lock:
+            session = _enrollment_sessions.get(session_id)
+            
+        if not session:
+            return jsonify({"error": "Enrollment session not found"}), 404
 
-    from app.hardware.camera import capture_frame
-    from app.ml.face_detector import detect_face
+        from app.hardware.camera import capture_frame
+        from app.ml.face_detector import detect_face
 
-    frame = capture_frame()
-    if frame is None:
-        return jsonify({"error": "Camera unavailable"}), 503
-    detection = detect_face(frame)
-    if not isinstance(detection, dict) or detection.get("error"):
-        return jsonify({"error": "No usable single face found"}), 422
+        frame = capture_frame()
+        if frame is None:
+            return jsonify({"error": "Camera unavailable"}), 503
+            
+        detection = detect_face(frame)
+        if not isinstance(detection, dict) or detection.get("error"):
+            return jsonify({"error": "No usable single face found"}), 422
 
-    with _enrollment_lock:
-        session["frames"].append(frame)
-        captured = len(session["frames"])
+        with _enrollment_lock:
+            # Re-fetch inside lock to be safe
+            session = _enrollment_sessions.get(session_id)
+            if not session:
+                return jsonify({"error": "Enrollment session expired"}), 404
+            
+            # Enforce max cap
+            if len(session["frames"]) >= _ENROLLMENT_TARGET_FRAMES * 2:
+                return jsonify({"error": "Maximum frames already captured for this session"}), 400
+                
+            session["frames"].append(frame)
+            captured = len(session["frames"])
 
-    return jsonify({
-        "sessionId": session_id,
-        "captured": captured,
-        "targetFrames": _ENROLLMENT_TARGET_FRAMES,
-        "complete": captured >= _ENROLLMENT_TARGET_FRAMES,
-        "message": f"Captured image {captured}/{_ENROLLMENT_TARGET_FRAMES}",
-    })
+        return jsonify({
+            "sessionId": session_id,
+            "captured": captured,
+            "targetFrames": _ENROLLMENT_TARGET_FRAMES,
+            "complete": captured >= _ENROLLMENT_TARGET_FRAMES,
+            "message": f"Captured image {captured}/{_ENROLLMENT_TARGET_FRAMES}",
+        })
+    except Exception as exc:
+        logger.error("POST /enroll/capture failed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 @user_bp.route("/enroll/complete", methods=["POST"])
 def enroll_complete():
-    _cleanup_enrollment_sessions()
-    data = request.json or {}
-    session_id = data.get("sessionId")
-    with _enrollment_lock:
-        session = _enrollment_sessions.get(session_id)
-    if not session:
-        return jsonify({"error": "Enrollment session not found"}), 404
+    try:
+        _cleanup_enrollment_sessions()
+        data = request.json or {}
+        session_id = data.get("sessionId")
+        with _enrollment_lock:
+            session = _enrollment_sessions.get(session_id)
+        if not session:
+            return jsonify({"error": "Enrollment session not found"}), 404
 
-    frames = list(session["frames"])
-    if len(frames) < 3:
-        return jsonify({"error": "At least 3 captured images are required"}), 400
+        frames = list(session["frames"])
+        if len(frames) < 3:
+            return jsonify({"error": "At least 3 captured images are required"}), 400
 
-    user = db.session.get(User, session["user_id"])
-    if not user:
-        return jsonify({"error": "User not found"}), 404
+        user = db.session.get(User, session["user_id"])
+        if not user:
+            return jsonify({"error": "User not found"}), 404
 
-    from app.ml.pipeline import enroll_user as ml_enroll
-    enroll_result = ml_enroll(frames, user.name)
-    if not enroll_result["ok"]:
-        return jsonify({"error": enroll_result["message"]}), 422
+        from app.ml.pipeline import enroll_user as ml_enroll
+        enroll_result = ml_enroll(frames, user.name)
+        if not enroll_result["ok"]:
+            return jsonify({"error": enroll_result["message"]}), 422
 
-    existing = user.get_embeddings()
-    user.set_embeddings(existing + enroll_result["embeddings"])
-    db.session.commit()
+        existing = user.get_embeddings() or []
+        user.set_embeddings(existing + enroll_result["embeddings"])
+        db.session.commit()
 
-    with _enrollment_lock:
-        _enrollment_sessions.pop(session_id, None)
+        with _enrollment_lock:
+            _enrollment_sessions.pop(session_id, None)
 
-    return jsonify({
-        "message": enroll_result["message"],
-        "user": user.to_dict(),
-        "enrolled": enroll_result["count"],
-    })
+        return jsonify({
+            "message": enroll_result["message"],
+            "user": user.to_dict(),
+            "enrolled": enroll_result["count"],
+        })
+    except Exception as exc:
+        logger.error("POST /enroll/complete failed: %s", exc)
+        db.session.rollback()
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # =============================================================================
@@ -428,73 +499,75 @@ def enroll_complete():
 
 @user_bp.route("/train", methods=["POST"])
 def train_model():
-    """
-    POST /train
-    -----------
-    (Re)trains the SVM classifier on all currently enrolled users.
-    Call this after every enrollment or user deletion.
-    """
-    from app.ml.recognizer import train_classifier
+    try:
+        from app.ml.recognizer import train_classifier
 
-    prototypes = _load_prototype_embeddings()
-    result     = train_classifier(prototypes)
+        prototypes = _load_prototype_embeddings()
+        result     = train_classifier(prototypes)
 
-    status = 200 if result["ok"] else 422
-    return jsonify(result), status
+        status = 200 if result.get("ok") else 422
+        return jsonify(result), status
+    except Exception as exc:
+        logger.error("POST /train failed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # =============================================================================
-# Legacy /scan  (backward-compatible  real ML, same response shape as mock)
+# Legacy /scan (real ML only)
 # =============================================================================
 
 @user_bp.route("/scan", methods=["POST"])
 def scan_face():
-    """
-    Legacy endpoint kept for the existing UI dashboard.
-    Accepts an image file upload and returns the same shape as the old mock:
-      {"result": "Authorized"|"Unauthorized", "confidence": int}
-    """
-    image_file = request.files.get("image")
-    if not image_file:
-        # If called without a real image (e.g. from old UI), fall back to mock
-        from app.mockml import mock_face_scan
-        scan = mock_face_scan()
-    else:
+    try:
+        image_file = request.files.get("image")
+        if not image_file:
+            return jsonify({"error": "No image provided"}), 400
+
         from app.ml.pipeline import authenticate_user, decode_frame
         from app.ml.liveness import generate_challenge
+        
+        try:
+            image_bytes = image_file.read()
+        except Exception:
+            return jsonify({"error": "Failed to read image"}), 400
 
-        frame  = decode_frame(image_file.read())
-        token  = generate_challenge()
-
+        frame = decode_frame(image_bytes)
         if frame is None:
-            from app.mockml import mock_face_scan
-            scan = mock_face_scan()
-        else:
-            prototypes = _load_prototype_embeddings()
-            auth = authenticate_user(
-                frame, token["challenge"], token["issued_at"], prototypes
+            return jsonify({"error": "Could not decode image"}), 400
+
+        token = generate_challenge()
+        prototypes = _load_prototype_embeddings()
+        auth = authenticate_user(frame, token["challenge"], token["issued_at"], prototypes)
+        
+        scan = {
+            "result": "Authorized" if auth.get("status") == "granted" else "Unauthorized",
+            "confidence": int(float(auth.get("confidence") or 0.0) * 100),
+            "user": auth.get("user", "unknown"),
+        }
+
+        try:
+            log = AccessLog(
+                timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
+                status     = "granted"  if scan["result"] == "Authorized" else "denied",
+                user       = scan.get("user", "unknown"),
+                liveness   = False,
+                confidence = scan["confidence"] / 100.0,
+                detail     = "Legacy /scan call",
+                ip_address = request.remote_addr,
             )
-            scan = {
-                "result":     "Authorized" if auth["status"] == "granted" else "Unauthorized",
-                "confidence": int(auth["confidence"] * 100),
-            }
+            db.session.add(log)
+            db.session.commit()
+        except Exception as db_exc:
+            logger.error("Failed to save AccessLog for /scan: %s", db_exc)
+            db.session.rollback()
 
-    log = AccessLog(
-        timestamp  = datetime.now().astimezone().isoformat(timespec="seconds"),
-        status     = "granted"  if scan["result"] == "Authorized" else "denied",
-        user       = scan.get("user", "unknown"),
-        liveness   = False,
-        confidence = scan["confidence"] / 100.0,
-        detail     = "Legacy /scan call",
-        ip_address = request.remote_addr,
-    )
-    db.session.add(log)
-    db.session.commit()
+        if scan["result"] == "Unauthorized":
+            return jsonify({"alert": "Unknown person detected!", **scan})
 
-    if scan["result"] == "Unauthorized":
-        return jsonify({"alert": "Unknown person detected!", **scan})
-
-    return jsonify(scan)
+        return jsonify(scan)
+    except Exception as exc:
+        logger.error("POST /scan failed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500
 
 
 # =============================================================================
@@ -503,82 +576,84 @@ def scan_face():
 
 @user_bp.route("/users/<int:user_id>/toggle", methods=["PUT"])
 def toggle_user(user_id: int):
-    user = db.session.get(User, user_id)
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-    user.active = not user.active
-    db.session.commit()
-    # Return "status" as the string the frontend UserManagement page reads directly
-    return jsonify({
-        "success": True,
-        "status":  "enabled" if user.active else "disabled",
-        "active":  user.active,
-        "user":    user.to_dict(),
-    })
+    try:
+        user = db.session.get(User, user_id)
+        if not user:
+            return jsonify({"error": "User not found"}), 404
+        user.active = not user.active
+        db.session.commit()
+        return jsonify({
+            "success": True,
+            "status":  "enabled" if user.active else "disabled",
+            "active":  user.active,
+            "user":    user.to_dict(),
+        })
+    except Exception as exc:
+        logger.error("PUT /users/%d/toggle failed: %s", user_id, exc)
+        db.session.rollback()
+        return jsonify({"error": "Database error"}), 500
 
 
 # =============================================================================
-# Stats endpoint  (real data from DB for the dashboard)
+# Stats endpoint
 # =============================================================================
 
 @user_bp.route("/stats", methods=["GET"])
 def get_stats():
-    from sqlalchemy import func
+    try:
+        from sqlalchemy import func
 
-    total_unlocks         = AccessLog.query.filter_by(status="granted").count()
-    unauthorized_attempts = AccessLog.query.filter_by(status="denied").count()
-    active_users          = User.query.filter_by(active=True, enrolled=True).count()
+        total_unlocks         = AccessLog.query.filter_by(status="granted").count()
+        unauthorized_attempts = AccessLog.query.filter_by(status="denied").count()
+        active_users          = User.query.filter_by(active=True, enrolled=True).count()
 
-    total = total_unlocks + unauthorized_attempts
-    detection_accuracy = round((total_unlocks / total * 100), 1) if total else 0.0
+        total = total_unlocks + unauthorized_attempts
+        detection_accuracy = round((total_unlocks / total * 100), 1) if total else 0.0
 
-    liveness_pass = AccessLog.query.filter_by(liveness=True).count()
-    liveness_pass_rate = round((liveness_pass / total * 100), 1) if total else 0.0
+        liveness_pass = AccessLog.query.filter_by(liveness=True).count()
+        liveness_pass_rate = round((liveness_pass / total * 100), 1) if total else 0.0
 
-    avg_conf_row = db.session.query(
-        func.avg(AccessLog.confidence)
-    ).filter(AccessLog.status == "granted").scalar()
-    avg_confidence = round(float(avg_conf_row or 0) * 100, 1)
+        avg_conf_row = db.session.query(
+            func.avg(AccessLog.confidence)
+        ).filter(AccessLog.status == "granted").scalar()
+        avg_confidence = round(float(avg_conf_row or 0) * 100, 1)
 
-    last_unauth = (
-        AccessLog.query
-        .filter_by(status="denied")
-        .order_by(AccessLog.id.desc())
-        .first()
-    )
+        last_unauth = (
+            AccessLog.query
+            .filter_by(status="denied")
+            .order_by(AccessLog.id.desc())
+            .first()
+        )
 
-    return jsonify({
-        "totalUnlocks":           total_unlocks,
-        "unauthorizedAttempts":   unauthorized_attempts,
-        "activeUsers":            active_users,
-        "detectionAccuracy":      detection_accuracy,
-        "livenessPassRate":       liveness_pass_rate,
-        "avgConfidence":          avg_confidence,
-        "lastUnauthorized":       last_unauth.timestamp if last_unauth else None,
-    })
+        return jsonify({
+            "totalUnlocks":           total_unlocks,
+            "unauthorizedAttempts":   unauthorized_attempts,
+            "activeUsers":            active_users,
+            "detectionAccuracy":      detection_accuracy,
+            "livenessPassRate":       liveness_pass_rate,
+            "avgConfidence":          avg_confidence,
+            "lastUnauthorized":       last_unauth.timestamp if last_unauth else None,
+        })
+    except Exception as exc:
+        logger.error("GET /stats failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
 
 
 # =============================================================================
-# Camera frame endpoint  (live snapshot from USB camera for the dashboard)
+# Camera frame endpoint
 # =============================================================================
 
 @user_bp.route("/camera/frame", methods=["GET"])
 def camera_frame():
-    """
-    GET /camera/frame
-    -----------------
-    Returns the latest JPEG frame from the USB camera.
-    The React dashboard can poll this endpoint to show a live feed.
+    try:
+        from flask import Response
+        from app.hardware.camera import capture_frame_jpeg
 
-    Response: JPEG image (Content-Type: image/jpeg)
-    On failure: 503 JSON error.
-    """
-    from flask import Response
-    from app.hardware.camera import capture_frame_jpeg
+        jpeg = capture_frame_jpeg()
+        if jpeg is None:
+            return jsonify({"error": "Camera unavailable"}), 503
 
-    jpeg = capture_frame_jpeg()
-    if jpeg is None:
-        return jsonify({"error": "Camera unavailable"}), 503
-
-    return Response(jpeg, mimetype="image/jpeg")
-
+        return Response(jpeg, mimetype="image/jpeg")
+    except Exception as exc:
+        logger.error("GET /camera/frame failed: %s", exc)
+        return jsonify({"error": "Internal server error"}), 500

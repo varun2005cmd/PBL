@@ -1,0 +1,17 @@
+[Unit]
+Description=Smart Door Lock Backend + Door Loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/PBL/backend
+EnvironmentFile=/home/pi/PBL/backend/.env
+ExecStart=/bin/bash /home/pi/PBL/backend/deploy/run_pi.sh
+Restart=always
+RestartSec=3
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

@@ -1,14 +1,12 @@
-"""
-app/routes/hardware_routes.py
-Flask Blueprint  Hardware Control (Servo, LCD, Status)
-=====================================================
-
-Endpoints
----------
-GET  /hardware/status        Get current door lock status.
-POST /hardware/lock          Lock the door (servo).
-POST /hardware/unlock        Unlock the door (servo).
-"""
+# =============================================================================
+# app/routes/hardware_routes.py  –  v2 (hardened)
+#
+# Fixes applied:
+#   • Removed redundant local state (_door_status)
+#   • Uses hardware modules (servo.py, camera.py) as Single Source of Truth
+#   • Added try/except guards for all hardware interaction
+#   • Simplified status logic to return REAL hardware availability
+# =============================================================================
 
 import logging
 import os
@@ -20,13 +18,10 @@ hardware_bp = Blueprint("hardware_bp", __name__)
 
 _API_KEY = os.environ.get("API_KEY")
 
-
 def _authorised() -> bool:
-    """Optional API key gate for sensitive hardware routes."""
     if not _API_KEY:
         return True
     return request.headers.get("X-API-Key") == _API_KEY
-
 
 def _reject_unauthorised():
     return jsonify({
@@ -35,83 +30,56 @@ def _reject_unauthorised():
         "message": "Missing or invalid API key",
     }), 401
 
-# Internal state — updated by both REST calls and the auto-relock timer
-_door_status = "locked"
-_lock_time: float = 0.0  # time.time() when auto-relock is expected
-
-
-def _compute_status() -> str:
-    """
-    Return the real current status by checking whether the auto-relock
-    timer has elapsed since the last unlock.  This means the status
-    is always accurate even between REST calls.
-    """
-    global _door_status, _lock_time
-    if _door_status == "unlocked" and _lock_time > 0 and time.time() >= _lock_time:
-        _door_status = "locked"
-        _lock_time = 0.0
-    return _door_status
-
 
 @hardware_bp.route("/hardware/status", methods=["GET"])
 def get_status():
-    """Return the real-time door lock status."""
+    """Return the real-time door lock and sensor status."""
     if not _authorised():
         return _reject_unauthorised()
-    status = _compute_status()
+        
     try:
-        from app.hardware import camera as cam_mod, servo as srv_mod, lcd as lcd_mod
-        cam_ok   = cam_mod._cap is not None and cam_mod._cap.isOpened()
-        servo_ok = srv_mod._gpio_ok
-        lcd_ok   = lcd_mod._lcd_ok
-    except Exception:
-        cam_ok = servo_ok = lcd_ok = False
-    return jsonify({
-        "status":    status,
-        "camera":   "connected" if cam_ok   else "disconnected",
-        "servo":    "connected" if servo_ok else "disconnected",
-        "lcd":      "connected" if lcd_ok   else "disconnected",
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-    })
+        from app.hardware import camera, servo, lcd
+        
+        # Query REAL hardware state from the modules
+        srv_status = servo.status()
+        cam_status = camera.status()
+        lcd_status = lcd.status()
+        
+        return jsonify({
+            "status":    "unlocked" if srv_status.get("unlocked") else "locked",
+            "camera":    "connected" if cam_status.get("opened") else "disconnected",
+            "servo":     "connected" if srv_status.get("available") else "disconnected",
+            "lcd":       "connected" if lcd_status.get("available") else "disconnected",
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        })
+    except Exception as exc:
+        logger.error("GET /hardware/status failed: %s", exc)
+        return jsonify({"error": "Failed to query hardware status"}), 500
 
 
 @hardware_bp.route("/hardware/lock", methods=["POST"])
 def lock_door():
     """Lock the door via servo motor."""
-    global _door_status, _lock_time
     if not _authorised():
         return _reject_unauthorised()
     try:
         from app.hardware import servo
         servo.lock_door()
-        _door_status = "locked"
-        _lock_time = 0.0
         return jsonify({"success": True, "status": "locked", "message": "Door locked"})
     except Exception as exc:
-        logger.warning("Lock failed: %s", exc)
-        # Still update internal state and return success=True so the UI
-        # reflects the intended state even on hardware-less dev machines.
-        _door_status = "locked"
-        _lock_time = 0.0
-        return jsonify({"success": True, "status": "locked", "message": "Locked (hardware unavailable)"})
+        logger.warning("REST /hardware/lock failed: %s", exc)
+        return jsonify({"success": False, "message": "Hardware communication error"}), 503
 
 
 @hardware_bp.route("/hardware/unlock", methods=["POST"])
 def unlock_door():
     """Unlock the door via servo motor."""
-    global _door_status, _lock_time
     if not _authorised():
         return _reject_unauthorised()
-    from app.hardware.servo import _UNLOCK_DURATION_S
     try:
         from app.hardware import servo
         servo.unlock_door()
-        _door_status = "unlocked"
-        _lock_time = time.time() + _UNLOCK_DURATION_S
         return jsonify({"success": True, "status": "unlocked", "message": "Door unlocked"})
     except Exception as exc:
-        logger.warning("Unlock failed: %s", exc)
-        # On dev machines without GPIO, simulate the unlock in state only
-        _door_status = "unlocked"
-        _lock_time = time.time() + _UNLOCK_DURATION_S
-        return jsonify({"success": True, "status": "unlocked", "message": "Unlocked (hardware unavailable)"})
+        logger.warning("REST /hardware/unlock failed: %s", exc)
+        return jsonify({"success": False, "message": "Hardware communication error"}), 503
