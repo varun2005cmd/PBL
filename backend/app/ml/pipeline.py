@@ -40,6 +40,53 @@ def _l2_normalize(vec: np.ndarray) -> Optional[np.ndarray]:
     except Exception:
         return None
 
+
+def _pick_recognition_result(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Prefer stable identities across multiple embeddings instead of trusting
+    a single averaged embedding. This improves true-positive recognition for
+    enrolled users when one frame is blurry or partially occluded.
+    """
+    if not results:
+        return {"user": "unknown", "confidence": 0.0, "distance": 9.9, "method": "none"}
+
+    aggregate = results[0]
+    known = [r for r in results if str(r.get("user") or "unknown") != "unknown"]
+    if not known:
+        return aggregate
+
+    by_user: Dict[str, List[Dict[str, Any]]] = {}
+    for result in known:
+        by_user.setdefault(str(result["user"]), []).append(result)
+
+    ranked = sorted(
+        by_user.items(),
+        key=lambda item: (
+            -len(item[1]),
+            min(float(r.get("distance") or 9.9) for r in item[1]),
+            -max(float(r.get("confidence") or 0.0) for r in item[1]),
+        ),
+    )
+    winner, winner_results = ranked[0]
+
+    # If the aggregate embedding already agrees with any frame-level match,
+    # trust that identity and surface its strongest result.
+    if str(aggregate.get("user") or "unknown") == winner:
+        return min(
+            winner_results,
+            key=lambda r: (float(r.get("distance") or 9.9), -float(r.get("confidence") or 0.0)),
+        )
+
+    # When the average embedding drifts, allow a consistent frame-level winner
+    # to take over as long as we have more than one supporting observation.
+    if len(winner_results) >= 2:
+        return min(
+            winner_results,
+            key=lambda r: (float(r.get("distance") or 9.9), -float(r.get("confidence") or 0.0)),
+        )
+
+    return aggregate
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -153,8 +200,8 @@ def authenticate_user(
             keep = embs
 
         avg_emb = np.mean(keep, axis=0)
-        embedding = _l2_normalize(avg_emb)
-        if embedding is None:
+        aggregate_embedding = _l2_normalize(avg_emb)
+        if aggregate_embedding is None:
             return _denied("embedding_fail", "Could not finalize face embedding.", liveness=True)
 
     except Exception as exc:
@@ -167,7 +214,14 @@ def authenticate_user(
     # Stage 4  Identity Recognition
     # ------------------------------------------------------------------
     try:
-        recognition = recognize_user(embedding, prototype_embeddings)
+        recognition_candidates: List[Dict[str, Any]] = [
+            recognize_user(aggregate_embedding, prototype_embeddings)
+        ]
+
+        for emb in valid_embeddings:
+            recognition_candidates.append(recognize_user(emb, prototype_embeddings))
+
+        recognition = _pick_recognition_result(recognition_candidates)
     except Exception as exc:
         logger.error("Stage 4 recognition raised: %s", exc)
         return _denied("recognition_error", "Face recognition failed (internal error).", liveness=True)

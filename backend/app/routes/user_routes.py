@@ -19,9 +19,11 @@ import time
 import logging
 import threading
 import uuid
+import os
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
+import numpy as np
 
 from app.models       import db
 from app.models.user  import User
@@ -105,6 +107,63 @@ def _cleanup_enrollment_sessions() -> None:
                 _enrollment_sessions.pop(session_id, None)
         except Exception as exc:
             logger.error("_cleanup_enrollment_sessions failed: %s", exc)
+
+
+def _compact_user_embeddings(embeddings: list) -> list:
+    """
+    Keep only the most consistent enrollment templates so repeated enrollment
+    sessions improve the model instead of filling it with noisy historical data.
+    """
+    cleaned = []
+    for emb in embeddings or []:
+        try:
+            vec = np.asarray(emb, dtype=np.float32).reshape(-1)
+            norm = float(np.linalg.norm(vec))
+            if np.isfinite(norm) and norm > 1e-8:
+                cleaned.append(vec / norm)
+        except Exception:
+            continue
+
+    if not cleaned:
+        return []
+
+    arr = np.stack(cleaned, axis=0)
+    centroid = np.mean(arr, axis=0)
+    centroid_norm = float(np.linalg.norm(centroid))
+    if not np.isfinite(centroid_norm) or centroid_norm <= 1e-8:
+        return [arr[0].astype(np.float32).tolist()]
+    centroid = centroid / centroid_norm
+
+    dists = np.linalg.norm(arr - centroid.reshape(1, -1), axis=1)
+    order = np.argsort(dists)
+    max_keep = max(4, int(os.environ.get("EMB_STORE_MAX_KEEP", "10") or "10"))
+
+    selected = [centroid.astype(np.float32)]
+    for idx in order[:max_keep]:
+        selected.append(arr[int(idx)].astype(np.float32))
+
+    compacted = []
+    seen = set()
+    for emb in selected:
+        key = tuple(np.round(emb, 5).tolist())
+        if key in seen:
+            continue
+        seen.add(key)
+        compacted.append(emb.tolist())
+
+    return compacted
+
+
+def _retrain_model_after_enrollment() -> None:
+    try:
+        from app.ml.recognizer import train_classifier
+
+        prototypes = _load_prototype_embeddings()
+        result = train_classifier(prototypes)
+        if not result.get("ok"):
+            logger.warning("Automatic retraining after enrollment failed: %s", result)
+    except Exception as exc:
+        logger.warning("Automatic retraining after enrollment raised: %s", exc)
 
 
 # =============================================================================
@@ -372,8 +431,9 @@ def enroll_user(user_id: int):
             return jsonify({"error": enroll_result["message"]}), 422
 
         existing = user.get_embeddings() or []
-        user.set_embeddings(existing + enroll_result["embeddings"])
+        user.set_embeddings(_compact_user_embeddings(existing + enroll_result["embeddings"]))
         db.session.commit()
+        _retrain_model_after_enrollment()
 
         return jsonify({
             "message":  enroll_result["message"],
@@ -497,8 +557,9 @@ def enroll_complete():
             return jsonify({"error": enroll_result["message"]}), 422
 
         existing = user.get_embeddings() or []
-        user.set_embeddings(existing + enroll_result["embeddings"])
+        user.set_embeddings(_compact_user_embeddings(existing + enroll_result["embeddings"]))
         db.session.commit()
+        _retrain_model_after_enrollment()
 
         with _enrollment_lock:
             _enrollment_sessions.pop(session_id, None)
@@ -629,10 +690,26 @@ def get_stats():
         active_users          = User.query.filter_by(active=True, enrolled=True).count()
 
         total = total_unlocks + unauthorized_attempts
-        detection_accuracy = round((total_unlocks / total * 100), 1) if total else 0.0
+        denied_logs = AccessLog.query.filter_by(status="denied").all()
+        detection_failure_phrases = (
+            "no face detected",
+            "multiple faces detected",
+            "face detection failed",
+            "invalid face detection",
+            "incomplete face detection",
+            "invalid detection",
+        )
+        detection_failures = sum(
+            1
+            for log in denied_logs
+            if any(phrase in str(log.detail or "").lower() for phrase in detection_failure_phrases)
+        )
+        detection_successes = max(total - detection_failures, 0)
+        detection_accuracy = round((detection_successes / total * 100), 1) if total else 0.0
 
         liveness_pass = AccessLog.query.filter_by(liveness=True).count()
-        liveness_pass_rate = round((liveness_pass / total * 100), 1) if total else 0.0
+        liveness_denominator = detection_successes
+        liveness_pass_rate = round((liveness_pass / liveness_denominator * 100), 1) if liveness_denominator else 0.0
 
         avg_conf_row = db.session.query(
             func.avg(AccessLog.confidence)

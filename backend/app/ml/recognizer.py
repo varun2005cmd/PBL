@@ -39,9 +39,15 @@ def _env_float(name: str, default: float) -> float:
 
 
 # Balanced defaults (can be overridden via environment variables)
-DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.85)
-SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.60)
-AMBIGUITY_MARGIN   = _env_float("AMBIGUITY_MARGIN", 0.05)
+DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.87)
+SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.55)
+AMBIGUITY_MARGIN   = _env_float("AMBIGUITY_MARGIN", 0.03)
+STRONG_MATCH_DIST  = _env_float("STRONG_MATCH_DIST", 0.72)
+NN_TOPK            = max(1, int(_env_float("NN_TOPK", 3)))
+ADAPTIVE_SIGMA     = _env_float("ADAPTIVE_SIGMA", 2.2)
+ADAPTIVE_MAX_RELAX = _env_float("ADAPTIVE_MAX_RELAX", 0.10)
+SVM_RESCUE_THRESHOLD = _env_float("SVM_RESCUE_THRESHOLD", 0.65)
+SVM_RESCUE_MARGIN    = _env_float("SVM_RESCUE_MARGIN", 0.08)
 
 # Guard globals with a reentrant lock
 _model_lock = threading.RLock()
@@ -80,17 +86,12 @@ def recognize_user(
     # --- Stage 1: Robust Distance (Source of Truth) ---
     # Compute per-user distance as min(distance-to-centroid, distance-to-closest-sample)
     # then apply open-set gates: absolute threshold + ambiguity margin.
-    nn_user, nn_dist, second_user, second_dist = _nearest_neighbour(embedding, prototype_embeddings)
+    nn_user, nn_dist, nn_thr, second_user, second_dist = _nearest_neighbour(embedding, prototype_embeddings)
 
-    if nn_dist > DISTANCE_THRESHOLD:
-        return {
-            "user":       "unknown",
-            "confidence": 0.0,
-            "distance":   float(nn_dist),
-            "method":     "distance_gate",
-        }
+    distance_gated = nn_dist > nn_thr
 
-    if second_user != "unknown" and (second_dist - nn_dist) < AMBIGUITY_MARGIN:
+    # If the best match is extremely strong, allow it even if the runner-up is close.
+    if nn_dist > STRONG_MATCH_DIST and second_user != "unknown" and (second_dist - nn_dist) < AMBIGUITY_MARGIN:
         return {
             "user":       "unknown",
             "confidence": 0.0,
@@ -105,21 +106,48 @@ def recognize_user(
         if svm is not None and label_map is not None:
             try:
                 svm_result = _svm_predict(embedding, svm, label_map)
+                svm_user = str(svm_result.get("user") or "unknown")
+                svm_conf = float(svm_result.get("confidence") or 0.0)
+
+                # Borderline rescue for enrolled users:
+                # if distance is only slightly above threshold and SVM strongly
+                # agrees with nearest-neighbour identity, allow the match.
                 if (
-                    float(svm_result.get("confidence") or 0.0) >= SVM_PROB_THRESHOLD
-                    and str(svm_result.get("user") or "unknown") == nn_user
+                    distance_gated
+                    and nn_dist <= (nn_thr + max(0.0, SVM_RESCUE_MARGIN))
+                    and svm_conf >= SVM_RESCUE_THRESHOLD
+                    and svm_user == nn_user
                 ):
                     return {
                         "user":       nn_user,
-                        "confidence": float(svm_result.get("confidence") or 0.0),
+                        "confidence": svm_conf,
+                        "distance":   float(nn_dist),
+                        "method":     "svm_rescue",
+                    }
+
+                if (
+                    svm_conf >= SVM_PROB_THRESHOLD
+                    and svm_user == nn_user
+                ):
+                    return {
+                        "user":       nn_user,
+                        "confidence": svm_conf,
                         "distance":   float(nn_dist),
                         "method":     "svm+euclidean",
                     }
             except Exception as exc:
                 logger.error("SVM prediction failed: %s", exc)
 
+    if distance_gated:
+        return {
+            "user":       "unknown",
+            "confidence": 0.0,
+            "distance":   float(nn_dist),
+            "method":     "distance_gate",
+        }
+
     # Fallback to nearest-neighbour if SVM fails or is low confidence
-    confidence = max(0.0, 1.0 - (nn_dist / DISTANCE_THRESHOLD))
+    confidence = max(0.0, 1.0 - (nn_dist / max(nn_thr, 1e-6)))
     return {
         "user":       nn_user,
         "confidence": round(confidence, 4),
@@ -198,10 +226,11 @@ def train_classifier(
 def _nearest_neighbour(
     embedding: np.ndarray,
     prototypes: Dict[str, List[np.ndarray]],
-) -> Tuple[str, float, str, float]:
-    """Return (best_user, best_dist, second_user, second_dist)."""
+) -> Tuple[str, float, float, str, float]:
+    """Return (best_user, best_dist, best_threshold, second_user, second_dist)."""
 
     best_name, best_dist = "unknown", float("inf")
+    best_thr = DISTANCE_THRESHOLD
     second_name, second_dist = "unknown", float("inf")
 
     for name, embs in (prototypes or {}).items():
@@ -232,17 +261,53 @@ def _nearest_neighbour(
         else:
             d_centroid = float("inf")
 
-        d_samples = np.linalg.norm(arr - embedding.reshape(1, -1), axis=1)
+        d_samples = np.linalg.norm(arr - embedding.reshape(1, -1), axis=1).astype(np.float32)
         d_min = float(np.min(d_samples)) if d_samples.size else float("inf")
 
-        d_user = min(d_centroid, d_min)
+        k = min(NN_TOPK, int(d_samples.size))
+        if k > 0:
+            topk = np.partition(d_samples, k - 1)[:k]
+            d_topk = float(np.mean(topk))
+        else:
+            d_topk = d_min
+
+        # Blend nearest and top-k means for robustness to single noisy templates.
+        d_blend = 0.65 * d_min + 0.35 * d_topk
+        d_user = min(d_centroid, float(d_blend))
+        user_thr = _adaptive_user_threshold(arr)
         if d_user < best_dist:
             second_name, second_dist = best_name, best_dist
             best_name, best_dist = name, d_user
+            best_thr = user_thr
         elif d_user < second_dist:
             second_name, second_dist = name, d_user
 
-    return str(best_name), float(best_dist), str(second_name), float(second_dist)
+    return str(best_name), float(best_dist), float(best_thr), str(second_name), float(second_dist)
+
+
+def _adaptive_user_threshold(user_embs: np.ndarray) -> float:
+    """
+    Derive a per-user threshold from enrollment spread.
+    Wider natural variation gets a modestly relaxed threshold.
+    """
+    try:
+        if user_embs.size == 0:
+            return float(DISTANCE_THRESHOLD)
+
+        centroid = np.mean(user_embs, axis=0)
+        cn = float(np.linalg.norm(centroid))
+        if not np.isfinite(cn) or cn <= 1e-8:
+            return float(DISTANCE_THRESHOLD)
+        centroid = centroid / cn
+
+        intra = np.linalg.norm(user_embs - centroid.reshape(1, -1), axis=1).astype(np.float32)
+        mu = float(np.mean(intra))
+        sigma = float(np.std(intra))
+        adaptive = mu + ADAPTIVE_SIGMA * sigma + 0.02
+        max_allowed = DISTANCE_THRESHOLD + max(0.0, ADAPTIVE_MAX_RELAX)
+        return float(max(DISTANCE_THRESHOLD, min(adaptive, max_allowed)))
+    except Exception:
+        return float(DISTANCE_THRESHOLD)
 
 
 def _svm_predict(embedding: np.ndarray, svm, label_map: Dict[int, str]) -> Dict[str, Any]:
