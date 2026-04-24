@@ -28,8 +28,9 @@ python -m pip install torch==2.2.2 torchvision==0.17.2 --extra-index-url https:/
 echo "Installing MediaPipe..."
 python -m pip install --extra-index-url https://www.piwheels.org/simple mediapipe || true
 
-echo "Installing remaining project requirements..."
+# Installing remaining project requirements
 python -m pip install -r requirements.txt
+python -m pip install --extra-index-url https://www.piwheels.org/simple opencv-python-headless
 
 python backend/tools/download_models.py || true
 

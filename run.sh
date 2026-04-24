@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Force OpenCV to use stable backends on Pi 5
+export OPENCV_VIDEOIO_PRIORITY_LIST=V4L2,GST,ANY
+
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 

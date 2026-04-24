@@ -161,6 +161,7 @@ def _cycle_body(
     # ------------------------------------------------------------------
     # Step 3: Collect response frames
     # ------------------------------------------------------------------
+    from app.ml.liveness import CHALLENGE_TIMEOUT
     response_frames: list = []
     deadline = time.monotonic() + min(CHALLENGE_TIMEOUT, 8.0)
 

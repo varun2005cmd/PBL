@@ -1,14 +1,7 @@
 .access-logs {
-  padding: 24px;
-  max-width: 1400px;
+  width: min(1080px, calc(100% - 48px));
   margin: 0 auto;
-}
-
-/* Production dark minimal overrides */
-.access-logs {
-  width: min(1180px, calc(100% - 32px));
-  max-width: none;
-  padding: 28px 0 44px;
+  padding: 40px 0 60px;
 }
 
 .logs-header h1,
@@ -24,49 +17,58 @@
   color: var(--muted);
 }
 
-.filter-btn,
-.logs-table,
+/* Base elements */
 .logs-stats {
-  background: #0b1220;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  color: var(--muted);
+  box-shadow: var(--shadow-sm);
+}
+
+.filter-btn {
+  background: var(--panel);
   border: 1px solid var(--border);
   color: var(--muted);
-  border-radius: 8px;
+  border-radius: var(--radius);
 }
 
 .filter-btn.active {
-  background: var(--cyan);
-  border-color: var(--cyan);
-  color: #0f172a;
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
 }
 
 .logs-table th {
-  background: #111c30;
+  background: var(--panel-soft);
   color: var(--muted);
 }
 
 .logs-table td {
-  border-bottom-color: var(--border);
+  border-bottom: 1px solid var(--border);
 }
 
 .logs-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 24px;
+  align-items: flex-end;
+  margin-bottom: 32px;
   gap: 20px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 24px;
 }
 
 .logs-header h1 {
-  font-size: 32px;
-  font-weight: 700;
-  color: #2c3e50;
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
   margin: 0 0 8px 0;
 }
 
 .logs-subtitle {
-  font-size: 16px;
-  color: #6c757d;
+  font-size: 14px;
   margin: 0;
+  line-height: 1.5;
 }
 
 .logs-filters {
@@ -76,26 +78,24 @@
 }
 
 .filter-btn {
-  padding: 10px 20px;
-  border: 2px solid #e0e0e0;
-  background: white;
-  border-radius: 8px;
-  font-size: 14px;
-  font-weight: 600;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
-  color: #6c757d;
+  transition: var(--transition);
 }
 
-.filter-btn:hover {
-  border-color: #667eea;
-  color: #667eea;
+.filter-btn:hover:not(.active) {
+  border-color: var(--border-hover);
+  color: var(--text);
+  background: var(--panel-soft);
 }
 
 .filter-btn.active {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-color: #667eea;
-  color: white;
+  background: var(--text);
+  color: var(--bg);
+  border-color: var(--text);
+  font-weight: 600;
 }
 
 /* Loading State */
@@ -104,24 +104,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  color: #6c757d;
-}
-
-.spinner {
-  width: 48px;
-  height: 48px;
-  border: 4px solid #f0f0f0;
-  border-top-color: #667eea;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-  margin-bottom: 16px;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  padding: 64px 24px;
+  color: var(--muted);
 }
 
 /* Empty State */
@@ -130,19 +114,23 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 60px 20px;
-  color: #6c757d;
+  padding: 64px 24px;
+  color: var(--muted);
 }
 
 .empty-icon {
-  font-size: 64px;
+  font-size: 48px;
   margin-bottom: 16px;
-  opacity: 0.5;
+  opacity: 0.3;
 }
 
 /* Table Styles */
 .logs-table-container {
   overflow-x: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
 }
 
 .logs-table {
@@ -151,41 +139,44 @@
 }
 
 .logs-table thead {
-  background: #f8f9fa;
+  background: var(--panel-soft);
 }
 
 .logs-table th {
-  padding: 16px;
+  padding: 16px 20px;
   text-align: left;
-  font-size: 14px;
-  font-weight: 700;
-  color: #2c3e50;
+  font-size: 12px;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  border-bottom: 2px solid #e0e0e0;
+  letter-spacing: 0.05em;
+  border-bottom: 1px solid var(--border);
 }
 
 .logs-table tbody tr {
-  border-bottom: 1px solid #f0f0f0;
-  transition: all 0.2s ease;
+  border-bottom: 1px solid var(--border);
+  transition: var(--transition);
+}
+
+.logs-table tbody tr:last-child {
+  border-bottom: none;
 }
 
 .logs-table tbody tr:hover {
-  background: #f8f9fa;
+  background: var(--panel-soft);
 }
 
 .log-row.log-unauthorized {
-  background: rgba(235, 51, 73, 0.05);
+  background: var(--red-dim);
 }
 
 .log-row.log-unauthorized:hover {
-  background: rgba(235, 51, 73, 0.1);
+  background: rgba(248, 113, 113, 0.16);
 }
 
 .logs-table td {
-  padding: 16px;
+  padding: 16px 20px;
   font-size: 14px;
-  color: #495057;
+  color: var(--text);
 }
 
 .log-datetime {
@@ -199,123 +190,119 @@
 }
 
 .log-date {
-  font-weight: 600;
-  color: #2c3e50;
+  font-weight: 500;
 }
 
 .log-time {
-  font-size: 13px;
-  color: #6c757d;
+  font-size: 12px;
 }
 
 .access-badge {
   display: inline-block;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: 0.05em;
 }
 
 .access-authorized {
-  background: #d4edda;
-  color: #155724;
-  border: 1px solid #c3e6cb;
+  background: var(--green-dim);
+  color: var(--green);
+  border: 1px solid rgba(74, 222, 128, 0.2);
 }
 
 .access-unauthorized {
-  background: #f8d7da;
-  color: #721c24;
-  border: 1px solid #f5c6cb;
+  background: var(--red-dim);
+  color: var(--red);
+  border: 1px solid rgba(248, 113, 113, 0.2);
 }
 
 .log-user {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-weight: 500;
 }
 
 .user-icon {
-  font-size: 20px;
+  font-size: 18px;
+  opacity: 0.8;
 }
 
 .result-badge {
   display: inline-block;
-  padding: 6px 12px;
+  padding: 4px 10px;
   border-radius: 6px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
 }
 
 .result-unlocked {
-  background: #d1ecf1;
-  color: #0c5460;
-  border: 1px solid #bee5eb;
+  background: var(--cyan-dim);
+  color: var(--cyan);
+  border: 1px solid rgba(94, 106, 210, 0.2);
 }
 
 .result-denied {
-  background: #fff3cd;
-  color: #856404;
-  border: 1px solid #ffeaa7;
+  background: var(--amber-dim);
+  color: var(--amber);
+  border: 1px solid rgba(251, 191, 36, 0.2);
 }
 
 .evidence-btn {
-  padding: 6px 12px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-  border: none;
+  padding: 6px 14px;
+  background: var(--panel-soft);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 500;
   cursor: pointer;
-  transition: all 0.3s ease;
+  transition: var(--transition);
 }
 
 .evidence-btn:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  background: var(--bg);
+  border-color: var(--border-hover);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Stats Footer */
 .logs-stats {
   display: flex;
   gap: 32px;
-  margin-top: 20px;
-  padding: 16px;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  margin-top: 24px;
+  padding: 20px 24px;
 }
 
 .stat-item {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 
 .stat-label {
-  font-size: 14px;
-  color: #6c757d;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 500;
 }
 
 .stat-value {
   font-size: 14px;
-  color: #2c3e50;
-  font-weight: 700;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Responsive Design */
 @media (max-width: 768px) {
   .access-logs {
-    padding: 16px;
+    padding: 24px 16px;
   }
 
   .logs-header {
     flex-direction: column;
     gap: 16px;
+    align-items: flex-start;
   }
 
   .logs-header h1 {
@@ -324,26 +311,25 @@
 
   .logs-filters {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-start;
   }
 
   .filter-btn {
     flex: 1;
-    padding: 8px 12px;
-    font-size: 12px;
+    text-align: center;
   }
 
   .logs-table {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .logs-table th,
   .logs-table td {
-    padding: 12px 8px;
+    padding: 12px 16px;
   }
 
   .logs-stats {
     flex-direction: column;
-    gap: 12px;
+    gap: 16px;
   }
 }

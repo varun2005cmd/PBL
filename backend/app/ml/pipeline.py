@@ -25,6 +25,21 @@ from app.ml.recognizer    import recognize_user
 
 logger = logging.getLogger(__name__)
 
+
+def _l2_normalize(vec: np.ndarray) -> Optional[np.ndarray]:
+    try:
+        if vec is None:
+            return None
+        vec = np.asarray(vec, dtype=np.float32)
+        if vec.ndim != 1:
+            return None
+        n = float(np.linalg.norm(vec))
+        if not np.isfinite(n) or n < 1e-8:
+            return None
+        return vec / n
+    except Exception:
+        return None
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -93,16 +108,58 @@ def authenticate_user(
     logger.debug("Stage 2 OK (%.2f s)", time.monotonic() - start)
 
     # ------------------------------------------------------------------
-    # Stage 3  Embedding Generation
+    # Stage 3  Embedding Generation (Multi-frame averaged)
     # ------------------------------------------------------------------
     try:
-        embedding = generate_embedding(face_crop)
+        frames_to_process = []
+        if liveness_frames and len(liveness_frames) > 0:
+            frames_to_process = liveness_frames[-2:]
+        if frame is not None:
+            frames_to_process.append(frame)
+
+        valid_embeddings: List[np.ndarray] = []
+        for f in frames_to_process:
+            if f is None: continue
+            det = detect_face(f)
+            if isinstance(det, dict) and det.get("face_crop") is not None:
+                emb = generate_embedding(det["face_crop"])
+                emb = _l2_normalize(emb) if emb is not None else None
+                if emb is not None:
+                    valid_embeddings.append(emb)
+
+        if not valid_embeddings:
+            return _denied("embedding_fail", "Could not generate face embedding.", liveness=True)
+
+        # Robust temporal aggregation: drop outlier frames before averaging.
+        # This prevents a single blurry/partial frame from dominating the mean.
+        embs = np.stack(valid_embeddings, axis=0).astype(np.float32)  # (n, 512)
+        centroid = np.mean(embs, axis=0)
+        centroid = _l2_normalize(centroid)
+        if centroid is None:
+            return _denied("embedding_fail", "Could not stabilize face embedding.", liveness=True)
+
+        dists = np.linalg.norm(embs - centroid.reshape(1, -1), axis=1)
+
+        outlier_q = float(os.environ.get("EMB_TEMPO_OUTLIER_Q", "0.80"))
+        max_dist = float(os.environ.get("EMB_TEMPO_MAX_DIST", "0.95"))
+        try:
+            q_thresh = float(np.quantile(dists, outlier_q)) if len(dists) >= 3 else float(np.max(dists))
+        except Exception:
+            q_thresh = float(np.max(dists))
+
+        keep_mask = (dists <= min(q_thresh, max_dist))
+        keep = embs[keep_mask]
+        if keep.shape[0] == 0:
+            keep = embs
+
+        avg_emb = np.mean(keep, axis=0)
+        embedding = _l2_normalize(avg_emb)
+        if embedding is None:
+            return _denied("embedding_fail", "Could not finalize face embedding.", liveness=True)
+
     except Exception as exc:
         logger.error("Stage 3 embedding raised: %s", exc)
         return _denied("embedding_error", "Could not generate face embedding.", liveness=True)
-
-    if embedding is None:
-        return _denied("embedding_fail", "Could not generate face embedding.", liveness=True)
 
     logger.debug("Stage 3 OK (%.2f s)", time.monotonic() - start)
 
@@ -130,7 +187,7 @@ def authenticate_user(
             "user":       "unknown",
             "liveness":   True,
             "confidence": 0.0,
-            "detail":     f"Face not recognised (distance={distance:.3f}, threshold=0.9).",
+            "detail":     f"Face not recognised (distance={distance:.3f}, threshold={os.environ.get('DISTANCE_THRESHOLD', '0.85')}).",
         }
 
     logger.info("Access granted: user=%s confidence=%.3f", user, confidence)
@@ -175,7 +232,7 @@ def enroll_user(
 
     from app.ml.embedder import embeddings_to_list
 
-    embeddings_list = []
+    raw_embeddings: List[np.ndarray] = []
     failed = 0
 
     for frame in frames:
@@ -200,17 +257,54 @@ def enroll_user(
             failed += 1
             continue
 
+        emb = _l2_normalize(emb) if emb is not None else None
         if emb is not None:
-            embeddings_list.append(embeddings_to_list(emb))
+            raw_embeddings.append(emb)
         else:
             failed += 1
 
-    if not embeddings_list:
+    if not raw_embeddings:
         return {
             "ok": False, "username": username,
             "embeddings": [], "count": 0,
             "message": f"No valid faces found in any of {len(frames)} frames.",
         }
+
+    # Accuracy-first enrollment cleanup:
+    # - compute a centroid template
+    # - drop outlier embeddings (bad frames)
+    # - keep only the most consistent samples to reduce noise
+    embs = np.stack(raw_embeddings, axis=0).astype(np.float32)
+    centroid = _l2_normalize(np.mean(embs, axis=0))
+    if centroid is None:
+        return {
+            "ok": False, "username": username,
+            "embeddings": [], "count": 0,
+            "message": "Enrollment failed: could not stabilize embeddings.",
+        }
+
+    dists = np.linalg.norm(embs - centroid.reshape(1, -1), axis=1)
+    outlier_q = float(os.environ.get("ENROLL_OUTLIER_Q", "0.85"))
+    max_dist = float(os.environ.get("ENROLL_MAX_DIST", "0.90"))
+    max_keep = int(os.environ.get("ENROLL_MAX_KEEP", "8"))
+
+    try:
+        q_thresh = float(np.quantile(dists, outlier_q)) if len(dists) >= 4 else float(np.max(dists))
+    except Exception:
+        q_thresh = float(np.max(dists))
+
+    # Keep closest embeddings, but guarantee we keep at least 3 if possible.
+    order = np.argsort(dists)
+    keep_idx = [int(i) for i in order if float(dists[int(i)]) <= min(q_thresh, max_dist)]
+    if len(keep_idx) < min(3, len(order)):
+        keep_idx = [int(i) for i in order[: min(3, len(order))]]
+    keep_idx = keep_idx[: max_keep]
+
+    final_embeddings: List[np.ndarray] = [centroid]
+    for i in keep_idx:
+        final_embeddings.append(embs[i])
+
+    embeddings_list = [embeddings_to_list(e) for e in final_embeddings]
 
     logger.info(
         "Enrollment complete: user=%s embeddings=%d failed=%d",

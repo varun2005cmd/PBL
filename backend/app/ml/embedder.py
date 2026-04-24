@@ -101,19 +101,40 @@ def generate_embedding(face_crop: np.ndarray) -> Optional[np.ndarray]:
     if face_crop.dtype != np.uint8:
         face_crop = np.clip(face_crop, 0, 255).astype(np.uint8)
 
+    # Normalize face crop lighting using CLAHE (L channel in LAB color space)
+    try:
+        import cv2
+        lab = cv2.cvtColor(face_crop, cv2.COLOR_RGB2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        face_crop = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+    except Exception as exc:
+        logger.debug("generate_embedding: CLAHE normalization skipped: %s", exc)
+
     try:
         import torch
         from PIL import Image
 
         model, transform = _get_model()
 
-        pil_img = Image.fromarray(face_crop)
-        tensor  = transform(pil_img).unsqueeze(0)   # (1, 3, 160, 160)
+        # Test Time Augmentation (TTA) for max accuracy: Original + Flipped
+        pil_img_orig = Image.fromarray(face_crop)
+        pil_img_flip = Image.fromarray(cv2.flip(face_crop, 1))
+
+        tensor_orig = transform(pil_img_orig).unsqueeze(0)   # (1, 3, 160, 160)
+        tensor_flip = transform(pil_img_flip).unsqueeze(0)   # (1, 3, 160, 160)
+
+        batch_tensor = torch.cat([tensor_orig, tensor_flip], dim=0) # (2, 3, 160, 160)
 
         with torch.inference_mode():
-            embedding = model(tensor)               # (1, 512)
+            embeddings = model(batch_tensor)               # (2, 512)
 
-        result = embedding.squeeze().cpu().numpy()  # (512,) float32
+        # Average the two embeddings and re-normalize
+        embeddings_np = embeddings.cpu().numpy()
+        avg_embedding = np.mean(embeddings_np, axis=0)     # (512,)
+        result = avg_embedding / np.linalg.norm(avg_embedding) # L2 normalize
 
         # Sanity-check output shape
         if result.shape != (512,):

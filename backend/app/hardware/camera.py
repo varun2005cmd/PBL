@@ -1,100 +1,90 @@
 # =============================================================================
-# app/hardware/camera.py  –  v3 (Ultimate Pi 5 Fix)
+# app/hardware/camera.py  –  v4 (Ultimate Pi 5 Fix)
 # =============================================================================
 
 from __future__ import annotations
 import logging
 import os
+
+# IMPORTANT: Set environment variables BEFORE importing cv2 to completely kill OBSENSOR
+os.environ["OPENCV_VIDEOIO_EXCLUDE_LIST"] = "OBSENSOR"
+os.environ["OPENCV_VIDEOIO_PRIORITY_LIST"] = "V4L2"
+
+import cv2
 import threading
 import time
-from typing import Optional
-import cv2
+import logging
 import numpy as np
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-_CAMERA_INDEX    = int(os.environ.get("CAMERA_INDEX", "0"))
-_CAPTURE_WIDTH   = int(os.environ.get("CAMERA_WIDTH", "640"))
-_CAPTURE_HEIGHT  = int(os.environ.get("CAMERA_HEIGHT", "480"))
-_CAPTURE_FPS     = int(os.environ.get("CAMERA_FPS", "15"))
-_READ_RETRY      = 3
-_FRAME_TIMEOUT_S = 3.0
+# Constants for configuration
+_CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", "0"))
+_CAPTURE_WIDTH = 640
+_CAPTURE_HEIGHT = 480
+_CAPTURE_FPS = 15
 
 # ---------------------------------------------------------------------------
-# State
+# Hardware State
 # ---------------------------------------------------------------------------
-_cap: Optional[cv2.VideoCapture] = None
-_cap_backend: str = "none"
-_cap_lock = threading.RLock()
+_cap = None
+_cap_lock = threading.Lock()
+_last_frame = None
 
-def _configure_capture(cap: cv2.VideoCapture) -> None:
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  _CAPTURE_WIDTH)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _CAPTURE_HEIGHT)
-    cap.set(cv2.CAP_PROP_FPS,          _CAPTURE_FPS)
-    cap.set(cv2.CAP_PROP_BUFFERSIZE,   1)
+def _open_camera_locked():
+    global _cap
+    if _cap is not None and _cap.isOpened():
+        return _cap
 
-def _probe_capture(cap: cv2.VideoCapture) -> bool:
-    if not cap.isOpened():
-        return False
-    for _ in range(5): cap.grab()
-    ok, frame = cap.read()
-    return bool(ok and frame is not None)
+    # We ONLY try the index from the environment variable, and maybe the other common one.
+    indices_to_try = [_CAMERA_INDEX]
+    if _CAMERA_INDEX == 0: indices_to_try.append(1)
+    elif _CAMERA_INDEX == 1: indices_to_try.append(0)
 
-def _open_camera_locked() -> Optional[cv2.VideoCapture]:
-    global _cap, _cap_backend
-    indices = [_CAMERA_INDEX, 0, 1, 2]
-    
-    for idx in indices:
-        # Method 1: Standard
-        try:
-            cap = cv2.VideoCapture(idx)
-            if cap.isOpened():
-                _configure_capture(cap)
-                if _probe_capture(cap):
+    for idx in indices_to_try:
+        logger.info(f"Attempting to open camera at INDEX {idx} using strict V4L2...")
+        
+        # Pass INTEGER to avoid "can't capture by name" warnings
+        cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
+        
+        if cap.isOpened():
+            cap.set(cv2.CAP_PROP_FRAME_WIDTH, _CAPTURE_WIDTH)
+            cap.set(cv2.CAP_PROP_FRAME_HEIGHT, _CAPTURE_HEIGHT)
+            cap.set(cv2.CAP_PROP_FPS, _CAPTURE_FPS)
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            
+            # Non-blocking grab check
+            if cap.grab():
+                ret, frame = cap.read()
+                if ret and frame is not None:
+                    logger.info(f"SUCCESS! Camera fully operational at INDEX {idx}")
                     _cap = cap
-                    _cap_backend = f"idx{idx}"
-                    logger.info("Camera ready at index %d", idx)
-                    return cap
-                cap.release()
-        except: pass
-
-        # Method 2: V4L2 Force
-        try:
-            cap = cv2.VideoCapture(idx, cv2.CAP_V4L2)
-            if cap.isOpened():
-                _configure_capture(cap)
-                if _probe_capture(cap):
-                    _cap = cap
-                    _cap_backend = f"v4l2-idx{idx}"
-                    logger.info("Camera ready at v4l2-index %d", idx)
-                    return cap
-                cap.release()
-        except: pass
-
-    logger.error("No working camera found.")
+                    return _cap
+            
+            logger.warning(f"Index {idx} opened but could not read frames. Releasing.")
+            cap.release()
+            
+    logger.error("Camera completely failed to open. Please check the USB connection.")
     return None
 
 def capture_frame() -> Optional[np.ndarray]:
+    global _last_frame
     with _cap_lock:
-        global _cap
-        if _cap is None or not _cap.isOpened():
-            _cap = _open_camera_locked()
-        
-        if _cap is None: return None
-        
-        _cap.grab()
-        for _ in range(_READ_RETRY):
-            ret, frame = _cap.read()
-            if ret and frame is not None:
-                return frame
-        
-        # Reset on failure
-        _cap.release()
-        _cap = None
-        return None
+        cap = _open_camera_locked()
+        if cap is None:
+            return None
+            
+        ret, frame = cap.read()
+        if not ret or frame is None:
+            logger.warning("Failed to grab frame, resetting camera...")
+            cap.release()
+            global _cap
+            _cap = None
+            return None
+            
+        _last_frame = frame.copy()
+        return _last_frame
 
 def capture_frame_jpeg(quality: int = 85) -> Optional[bytes]:
     frame = capture_frame()
@@ -102,15 +92,16 @@ def capture_frame_jpeg(quality: int = 85) -> Optional[bytes]:
     ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, quality])
     return bytes(buf) if ok else None
 
-def wait_for_face(timeout: float = 10.0) -> Optional[np.ndarray]:
+def wait_for_face(timeout: float = 10.0, poll_interval: float = 0.3) -> Optional[np.ndarray]:
     from app.ml.face_detector import detect_face
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         frame = capture_frame()
         if frame is not None:
-            if detect_face(frame).get("face_crop") is not None:
+            result = detect_face(frame)
+            if result is not None and result.get("face_crop") is not None:
                 return frame
-        time.sleep(0.3)
+        time.sleep(poll_interval)
     return None
 
 def release() -> None:
@@ -121,4 +112,4 @@ def release() -> None:
             _cap = None
 
 def status() -> dict:
-    return {"opened": _cap is not None, "backend": _cap_backend}
+    return {"opened": _cap is not None, "backend": "V4L2"}

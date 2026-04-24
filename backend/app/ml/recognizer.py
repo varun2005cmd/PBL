@@ -30,8 +30,18 @@ _MODEL_DIR  = Path(__file__).parent / "model_store"
 _SVM_PATH   = _MODEL_DIR / "svm_classifier.pkl"
 _LABELS_PATH = _MODEL_DIR / "label_map.json"
 
-DISTANCE_THRESHOLD = 0.9
-SVM_PROB_THRESHOLD = 0.55
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except Exception:
+        return float(default)
+
+
+# Balanced defaults (can be overridden via environment variables)
+DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.85)
+SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.60)
+AMBIGUITY_MARGIN   = _env_float("AMBIGUITY_MARGIN", 0.05)
 
 # Guard globals with a reentrant lock
 _model_lock = threading.RLock()
@@ -57,15 +67,35 @@ def recognize_user(
     if not prototype_embeddings:
         return {"user": "unknown", "confidence": 0.0, "distance": 9.9, "method": "none"}
 
-    # --- Stage 1: Euclidean Distance (Source of Truth) ---
-    nn_user, nn_dist = _nearest_neighbour(embedding, prototype_embeddings)
+    # Normalize embedding for stable distance comparisons
+    try:
+        embedding = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        n = float(np.linalg.norm(embedding))
+        if not np.isfinite(n) or n < 1e-8:
+            return {"user": "unknown", "confidence": 0.0, "distance": 9.9, "method": "none"}
+        embedding = embedding / n
+    except Exception:
+        return {"user": "unknown", "confidence": 0.0, "distance": 9.9, "method": "none"}
+
+    # --- Stage 1: Robust Distance (Source of Truth) ---
+    # Compute per-user distance as min(distance-to-centroid, distance-to-closest-sample)
+    # then apply open-set gates: absolute threshold + ambiguity margin.
+    nn_user, nn_dist, second_user, second_dist = _nearest_neighbour(embedding, prototype_embeddings)
 
     if nn_dist > DISTANCE_THRESHOLD:
         return {
             "user":       "unknown",
             "confidence": 0.0,
             "distance":   float(nn_dist),
-            "method":     "euclidean",
+            "method":     "distance_gate",
+        }
+
+    if second_user != "unknown" and (second_dist - nn_dist) < AMBIGUITY_MARGIN:
+        return {
+            "user":       "unknown",
+            "confidence": 0.0,
+            "distance":   float(nn_dist),
+            "method":     "ambiguity_gate",
         }
 
     # --- Stage 2: SVM Probability ---
@@ -94,7 +124,7 @@ def recognize_user(
         "user":       nn_user,
         "confidence": round(confidence, 4),
         "distance":   float(nn_dist),
-        "method":     "euclidean",
+        "method":     "distance",
     }
 
 
@@ -134,7 +164,7 @@ def train_classifier(
         # Build model in memory first (off-lock)
         pipeline = Pipeline([
             ("norm",  Normalizer()),
-            ("svm",   SVC(kernel="rbf", probability=True, C=5.0, gamma="scale")),
+            ("svm",   SVC(kernel="linear", probability=True, C=5.0)),
         ])
         pipeline.fit(X_arr, y)
 
@@ -165,14 +195,54 @@ def train_classifier(
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _nearest_neighbour(embedding: np.ndarray, prototypes: Dict[str, List[np.ndarray]]) -> Tuple[str, float]:
+def _nearest_neighbour(
+    embedding: np.ndarray,
+    prototypes: Dict[str, List[np.ndarray]],
+) -> Tuple[str, float, str, float]:
+    """Return (best_user, best_dist, second_user, second_dist)."""
+
     best_name, best_dist = "unknown", float("inf")
-    for name, embs in prototypes.items():
-        for proto in embs:
-            dist = float(np.linalg.norm(embedding - proto))
-            if dist < best_dist:
-                best_dist, best_name = dist, name
-    return best_name, best_dist
+    second_name, second_dist = "unknown", float("inf")
+
+    for name, embs in (prototypes or {}).items():
+        if not embs:
+            continue
+
+        # Normalize and drop invalid entries
+        cleaned: List[np.ndarray] = []
+        for e in embs:
+            try:
+                v = np.asarray(e, dtype=np.float32).reshape(-1)
+                n = float(np.linalg.norm(v))
+                if not np.isfinite(n) or n < 1e-8:
+                    continue
+                cleaned.append(v / n)
+            except Exception:
+                continue
+
+        if not cleaned:
+            continue
+
+        arr = np.stack(cleaned, axis=0)  # (k, 512)
+        centroid = np.mean(arr, axis=0)
+        cn = float(np.linalg.norm(centroid))
+        if np.isfinite(cn) and cn > 1e-8:
+            centroid = centroid / cn
+            d_centroid = float(np.linalg.norm(embedding - centroid))
+        else:
+            d_centroid = float("inf")
+
+        d_samples = np.linalg.norm(arr - embedding.reshape(1, -1), axis=1)
+        d_min = float(np.min(d_samples)) if d_samples.size else float("inf")
+
+        d_user = min(d_centroid, d_min)
+        if d_user < best_dist:
+            second_name, second_dist = best_name, best_dist
+            best_name, best_dist = name, d_user
+        elif d_user < second_dist:
+            second_name, second_dist = name, d_user
+
+    return str(best_name), float(best_dist), str(second_name), float(second_dist)
 
 
 def _svm_predict(embedding: np.ndarray, svm, label_map: Dict[int, str]) -> Dict[str, Any]:

@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 user_bp = Blueprint("user_bp", __name__)
 _enrollment_sessions = {}
 _enrollment_lock = threading.RLock()
-_ENROLLMENT_TARGET_FRAMES = 5
+_ENROLLMENT_TARGET_FRAMES = 10
 _ENROLLMENT_SESSION_TTL_SECONDS = 15 * 60
 
 
@@ -150,6 +150,15 @@ def delete_user(user_id: int):
             return jsonify({"error": "User not found"}), 404
         db.session.delete(user)
         db.session.commit()
+        
+        # Retrain SVM to ensure the deleted user is removed from predictions
+        try:
+            from app.ml.recognizer import train_classifier
+            prototypes = _load_prototype_embeddings()
+            train_classifier(prototypes)
+        except Exception as exc:
+            logger.warning("Failed to retrain SVM after user deletion: %s", exc)
+            
         return jsonify({"message": f"User {user_id} deleted."})
     except Exception as exc:
         logger.error("DELETE /users/%d failed: %s", user_id, exc)
@@ -172,6 +181,18 @@ def get_logs():
         return jsonify([l.to_dict() for l in logs])
     except Exception as exc:
         logger.error("GET /logs failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
+
+
+@user_bp.route("/logs", methods=["DELETE"])
+def clear_logs():
+    try:
+        num_deleted = AccessLog.query.delete()
+        db.session.commit()
+        return jsonify({"message": f"Cleared {num_deleted} logs successfully."}), 200
+    except Exception as exc:
+        logger.error("DELETE /logs failed: %s", exc)
+        db.session.rollback()
         return jsonify({"error": "Database error"}), 500
 
 

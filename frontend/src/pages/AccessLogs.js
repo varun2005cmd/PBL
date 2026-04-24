@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Card from '../components/Card';
 import Button from '../components/Button';
 import { logsService } from '../api/services';
+import { API_BASE_URL, ENDPOINTS } from '../api/config';
 import './AccessLogs.css';
 
 const AccessLogs = () => {
@@ -26,6 +27,19 @@ const AccessLogs = () => {
       console.error('Failed to fetch logs:', err);
       setError('Cannot reach backend. Is the server running?');
     } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearLogs = async () => {
+    if (!window.confirm("Are you sure you want to completely clear the access logs?")) return;
+    setLoading(true);
+    try {
+      await fetch(`${API_BASE_URL}${ENDPOINTS.ACCESS_LOGS}`, { method: 'DELETE' });
+      await fetchLogs();
+    } catch (err) {
+      console.error('Failed to clear logs:', err);
+      setError('Failed to clear logs');
       setLoading(false);
     }
   };
@@ -72,6 +86,13 @@ const AccessLogs = () => {
             onClick={() => setFilter('unauthorized')}
           >
             Unauthorized ({logs.filter(l => (l.accessType || '').toLowerCase() === 'unauthorized').length})
+          </button>
+          <button 
+            className="filter-btn" 
+            style={{ color: 'var(--red)', borderColor: 'var(--red-dim)' }}
+            onClick={clearLogs}
+          >
+            Clear Logs
           </button>
         </div>
       </div>
