@@ -55,6 +55,21 @@ _svm_model: Optional[object] = None
 _label_map: Optional[Dict[int, str]] = None
 
 
+def _clear_classifier_artifacts() -> None:
+    """Remove persisted SVM files and reset the in-memory cache."""
+    global _svm_model, _label_map
+    _svm_model = None
+    _label_map = None
+    try:
+        _SVM_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+    try:
+        _LABELS_PATH.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
@@ -178,10 +193,12 @@ def train_classifier(
             y_names.append(name)
 
     if len(X) < 2:
+        _clear_classifier_artifacts()
         return {"ok": False, "classes": 0, "samples": len(X), "message": "Need at least 2 samples to train."}
 
     unique_labels = set(y_names)
     if len(unique_labels) < 2:
+        _clear_classifier_artifacts()
         return {"ok": False, "classes": len(unique_labels), "message": "Need at least 2 different users."}
 
     try:
@@ -332,4 +349,5 @@ def _load_classifier_locked() -> Tuple[Optional[object], Optional[Dict[int, str]
             logger.info("SVM classifier loaded from disk.")
         except Exception as exc:
             logger.warning("Could not load SVM classifier: %s", exc)
+            _clear_classifier_artifacts()
     return _svm_model, _label_map

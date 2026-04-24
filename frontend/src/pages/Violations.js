@@ -11,6 +11,8 @@ const Violations = () => {
   const [selected, setSelected] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [deletingGroupId, setDeletingGroupId] = useState(null);
+  const [deletingImageId, setDeletingImageId] = useState(null);
 
   const fetchViolations = async () => {
     try {
@@ -21,6 +23,42 @@ const Violations = () => {
       setError('Cannot load violation evidence from backend.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDeleteGroup = async (groupId) => {
+    const confirmed = window.confirm('Delete this violation evidence and all of its photos?');
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingGroupId(groupId);
+      setError(null);
+      await violationsService.deleteGroup(groupId);
+      await fetchViolations();
+    } catch (err) {
+      setError('Cannot delete violation evidence right now.');
+    } finally {
+      setDeletingGroupId(null);
+    }
+  };
+
+  const handleDeleteImage = async (imageId) => {
+    const confirmed = window.confirm('Delete this violation photo?');
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingImageId(imageId);
+      setError(null);
+      await violationsService.deleteItem(imageId);
+      await fetchViolations();
+    } catch (err) {
+      setError('Cannot delete violation photo right now.');
+    } finally {
+      setDeletingImageId(null);
     }
   };
 
@@ -56,17 +94,36 @@ const Violations = () => {
                     <h3>{group.userName}</h3>
                     <span>{new Date(group.timestamp).toLocaleString()}</span>
                   </div>
-                  <span className="evidence-count">{group.images.length} images</span>
+                  <div className="violation-actions">
+                    <span className="evidence-count">{group.images.length} images</span>
+                    <Button
+                      variant="danger"
+                      size="small"
+                      onClick={() => handleDeleteGroup(group.groupId)}
+                      disabled={deletingGroupId === group.groupId}
+                    >
+                      {deletingGroupId === group.groupId ? 'Deleting...' : 'Delete'}
+                    </Button>
+                  </div>
                 </div>
                 <div className="evidence-grid">
                   {group.images.map((image) => (
-                    <button
-                      key={image.id}
-                      className="evidence-tile"
-                      onClick={() => setSelected(`${API_BASE_URL}${image.imageUrl}`)}
-                    >
-                      <img src={`${API_BASE_URL}${image.imageUrl}`} alt="Violation evidence" />
-                    </button>
+                    <div key={image.id} className="evidence-item">
+                      <button
+                        type="button"
+                        className="evidence-delete"
+                        onClick={() => handleDeleteImage(image.id)}
+                        disabled={deletingImageId === image.id}
+                      >
+                        {deletingImageId === image.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                      <button
+                        className="evidence-tile"
+                        onClick={() => setSelected(`${API_BASE_URL}${image.imageUrl}`)}
+                      >
+                        <img src={`${API_BASE_URL}${image.imageUrl}`} alt="Violation evidence" />
+                      </button>
+                    </div>
                   ))}
                 </div>
               </section>

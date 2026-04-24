@@ -20,6 +20,7 @@ import logging
 import threading
 import uuid
 import os
+from pathlib import Path
 from datetime import datetime
 
 from flask import Blueprint, request, jsonify
@@ -386,6 +387,89 @@ def get_violations():
         return jsonify(list(grouped.values()))
     except Exception as exc:
         logger.error("GET /violations failed: %s", exc)
+        return jsonify({"error": "Database error"}), 500
+
+
+def _safe_unlink_violation_path(rel_path: str) -> bool:
+    """Delete a violation image path relative to the violations root.
+
+    Returns True if a file was deleted, False otherwise.
+    """
+    try:
+        from app.security.repeat_detection import violation_root
+
+        root = violation_root().resolve()
+        rel = Path(str(rel_path or "").lstrip("/\\"))
+        abs_path = (root / rel).resolve()
+
+        # Prevent path traversal: only allow files under the violations root.
+        if abs_path == root or root not in abs_path.parents:
+            return False
+
+        if abs_path.is_file():
+            abs_path.unlink(missing_ok=True)
+
+            # Best-effort cleanup of empty parent dirs (e.g. user_id/safe_stamp)
+            current = abs_path.parent
+            while current != root:
+                try:
+                    current.rmdir()
+                except OSError:
+                    break
+                current = current.parent
+
+            return True
+    except Exception:
+        return False
+    return False
+
+
+@user_bp.route("/violations/group/<path:group_id>", methods=["DELETE"])
+def delete_violation_group(group_id: str):
+    try:
+        rows = ViolationImage.query.filter_by(group_id=group_id).all()
+        if not rows:
+            return jsonify({"error": "Violation group not found"}), 404
+
+        files_deleted = 0
+        for row in rows:
+            if _safe_unlink_violation_path(row.image_path):
+                files_deleted += 1
+            db.session.delete(row)
+
+        db.session.commit()
+        return jsonify({
+            "deleted": len(rows),
+            "filesDeleted": files_deleted,
+            "groupId": group_id,
+        })
+    except Exception as exc:
+        logger.error("DELETE /violations/group/%s failed: %s", group_id, exc)
+        db.session.rollback()
+        return jsonify({"error": "Database error"}), 500
+
+
+@user_bp.route("/violations/item/<int:image_id>", methods=["DELETE"])
+def delete_violation_item(image_id: int):
+    try:
+        row = db.session.get(ViolationImage, image_id)
+        if not row:
+            return jsonify({"error": "Violation image not found"}), 404
+
+        file_deleted = _safe_unlink_violation_path(row.image_path)
+        group_id = row.group_id
+        db.session.delete(row)
+        db.session.commit()
+
+        return jsonify({
+            "deleted": 1,
+            "filesDeleted": 1 if file_deleted else 0,
+            "id": image_id,
+            "groupId": group_id,
+        })
+    except Exception as exc:
+        logger.error("DELETE /violations/item/%d failed: %s", image_id, exc)
+        db.session.rollback()
         return jsonify({"error": "Database error"}), 500
 
 

@@ -93,5 +93,15 @@ export const violationsService = {
   getViolations: async () => {
     const response = await apiClient.get(ENDPOINTS.VIOLATIONS);
     return response.data;
+  },
+
+  deleteGroup: async (groupId) => {
+    const response = await apiClient.delete(`/violations/group/${encodeURIComponent(groupId)}`);
+    return response.data;
+  },
+
+  deleteItem: async (imageId) => {
+    const response = await apiClient.delete(`/violations/item/${imageId}`);
+    return response.data;
   }
 };
