@@ -81,6 +81,7 @@ def _init_lcd() -> bool:
 
 
 def _lcd_byte(mode: int, bits: int) -> None:
+    global _lcd_ok
     if not _lcd_ok and mode != _LCD_CMD:
         return
     if _bus is None:
@@ -96,7 +97,6 @@ def _lcd_byte(mode: int, bits: int) -> None:
         _bus.write_byte(addr, bits_low)
         _lcd_toggle_enable(bits_low)
     except OSError as exc:
-        global _lcd_ok
         _lcd_ok = False
         logger.warning("LCD write failed, disabling display: %s", exc)
 

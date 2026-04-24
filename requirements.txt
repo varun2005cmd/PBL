@@ -13,35 +13,23 @@ gunicorn==21.2.0
 requests==2.32.3
 
 # ── Scientific / image ────────────────────────────────────────────────────────
-# numpy: 1.26.4 is last version with aarch64 wheels for Python 3.11
 numpy==1.26.4
 Pillow==10.4.0
-# opencv-headless has prebuilt aarch64 wheels on PyPI (4.9+ series).
-# Do NOT use opencv-python (pulls in GUI libs that fail on headless Pi 5).
-opencv-python-headless==4.9.0.80
+
 
 # ── ML / AI ───────────────────────────────────────────────────────────────────
-# scikit-learn 1.3.x has aarch64 wheels; 1.4.x dropped them for 3.11 aarch64.
 scikit-learn==1.3.2
-
-# facenet-pytorch: pure-Python wrapper – works on any arch.
 facenet-pytorch==2.5.3
 
 # PyTorch CPU-only for ARM64 (Pi 5).
-# Official ARM64 CPU wheels ship from piwheels or the PyTorch ARM index.
-# Install BEFORE this file with:
-#   pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
-# Pinned versions known to ship aarch64 wheels:
-torch==2.3.1
-torchvision==0.18.1
+# Pinned versions known to ship aarch64 wheels without NVIDIA bloat:
+torch==2.2.2
+torchvision==0.17.2
 
 # mediapipe 0.10.14 has a Linux aarch64 / Python 3.11 wheel on PyPI.
-# If the pip install fails, install from piwheels:
-#   pip install mediapipe --extra-index-url https://www.piwheels.org/simple
 mediapipe==0.10.14
 
-# ── Hardware (Pi-only) ────────────────────────────────────────────────────────
+# ── Hardware (Pi 5) ───────────────────────────────────────────────────────────
 smbus2==0.4.3
-# RPi.GPIO: installed via apt on Pi 5 (python3-rpi.gpio) – kept here for
-# pip-based setups but won't hurt if it is already system-installed.
-RPi.GPIO==0.7.1
+# CRITICAL FIX: Use rpi-lgpio instead of RPi.GPIO for Raspberry Pi 5 (RP1 chip)
+rpi-lgpio==0.6

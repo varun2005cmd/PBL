@@ -56,11 +56,11 @@ def _init_gpio() -> bool:
 
 
 def _set_duty_cycle(dc: float) -> None:
+    global _gpio_ok
     if _gpio_ok and _pwm is not None:
         try:
             _pwm.ChangeDutyCycle(dc)
         except Exception as exc:
-            global _gpio_ok
             _gpio_ok = False
             logger.warning("Servo write failed, disabling servo: %s", exc)
 
