@@ -113,7 +113,7 @@ const Enrollment = () => {
                 <Button variant="success" onClick={captureImage} disabled={busy || captured >= targetFrames} fullWidth>
                   Capture Image
                 </Button>
-                <Button variant="primary" onClick={completeEnrollment} disabled={busy || captured < 3} fullWidth>
+                <Button variant="primary" onClick={completeEnrollment} disabled={busy || captured < 12} fullWidth>
                   Complete Enrollment
                 </Button>
               </>

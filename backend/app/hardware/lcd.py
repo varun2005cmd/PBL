@@ -96,7 +96,7 @@ def _lcd_byte(mode: int, bits: int) -> None:
         _lcd_toggle_enable(bits_high)
         _bus.write_byte(addr, bits_low)
         _lcd_toggle_enable(bits_low)
-    except OSError as exc:
+    except (OSError, TypeError) as exc:
         _lcd_ok = False
         logger.warning("LCD write failed, disabling display: %s", exc)
 
@@ -111,8 +111,8 @@ def _lcd_toggle_enable(bits: int) -> None:
         time.sleep(0.0005)
         _bus.write_byte(addr, bits & ~_ENABLE)
         time.sleep(0.0005)
-    except OSError:
-        pass
+    except (OSError, TypeError):
+        _lcd_ok = False
 
 
 def _write_line(text: str, line: int) -> None:
@@ -167,6 +167,7 @@ def cleanup() -> None:
         try:
             clear()
             _bus.close()
+            _bus = None
             _lcd_ok = False
             logger.info("LCD I2C bus closed.")
         except Exception as exc:

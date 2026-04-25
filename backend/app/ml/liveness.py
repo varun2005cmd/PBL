@@ -27,10 +27,10 @@ logger = logging.getLogger(__name__)
 CHALLENGE_TIMEOUT  = float(os.environ.get("CHALLENGE_TIMEOUT_SECONDS", "12"))
 SUPPORTED_CHALLENGES = ("BLINK", "LEFT", "RIGHT", "UP", "DOWN")
 
-_YAW_THRESHOLD_DEG   = 15.0
-_PITCH_THRESHOLD_DEG = 11.0
-_EAR_CLOSED_THRESHOLD = 0.205
-_EAR_OPEN_THRESHOLD   = 0.265
+_YAW_THRESHOLD_DEG   = 12.0
+_PITCH_THRESHOLD_DEG = 9.0
+_EAR_CLOSED_THRESHOLD = 0.19
+_EAR_OPEN_THRESHOLD   = 0.28
 _REQUIRED_BLINKS      = 2
 _MAX_BLINK_FRAMES     = int(os.environ.get("MAX_BLINK_FRAMES", "30"))
 
@@ -136,9 +136,13 @@ def check_liveness(
     yaw   = float(pose["yaw"])
     pitch = float(pose["pitch"])
 
+    # Mirror compensation
+    is_mirrored = os.environ.get("MIRROR_LIVENESS", "1") == "1"
+    effective_yaw = -yaw if is_mirrored else yaw
+
     passed = (
-        (challenge == "LEFT"  and yaw   <= -_YAW_THRESHOLD_DEG)
-        or (challenge == "RIGHT" and yaw   >=  _YAW_THRESHOLD_DEG)
+        (challenge == "LEFT"  and effective_yaw   <= -_YAW_THRESHOLD_DEG)
+        or (challenge == "RIGHT" and effective_yaw   >=  _YAW_THRESHOLD_DEG)
         or (challenge == "UP"    and pitch <= -_PITCH_THRESHOLD_DEG)
         or (challenge == "DOWN"  and pitch >=  _PITCH_THRESHOLD_DEG)
     )

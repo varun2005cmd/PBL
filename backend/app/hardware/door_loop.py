@@ -174,7 +174,7 @@ def _cycle_body(
     # ------------------------------------------------------------------
     from app.ml.liveness import CHALLENGE_TIMEOUT
     response_frames: list = []
-    deadline = time.monotonic() + min(CHALLENGE_TIMEOUT, 8.0)
+    deadline = time.monotonic() + min(CHALLENGE_TIMEOUT, 12.0)
 
     while time.monotonic() < deadline:
         sample = camera.capture_frame()

@@ -38,15 +38,15 @@ def _env_float(name: str, default: float) -> float:
         return float(default)
 
 
-# Balanced defaults (can be overridden via environment variables)
-DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.92)
-SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.55)
+# Optimized Borderline Thresholds
+DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.95)
+SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.45)
 AMBIGUITY_MARGIN   = _env_float("AMBIGUITY_MARGIN", 0.03)
 STRONG_MATCH_DIST  = _env_float("STRONG_MATCH_DIST", 0.75)
 NN_TOPK            = max(1, int(_env_float("NN_TOPK", 3)))
 ADAPTIVE_SIGMA     = _env_float("ADAPTIVE_SIGMA", 2.2)
 ADAPTIVE_MAX_RELAX = _env_float("ADAPTIVE_MAX_RELAX", 0.10)
-SVM_RESCUE_THRESHOLD = _env_float("SVM_RESCUE_THRESHOLD", 0.65)
+SVM_RESCUE_THRESHOLD = _env_float("SVM_RESCUE_THRESHOLD", 0.55)
 SVM_RESCUE_MARGIN    = _env_float("SVM_RESCUE_MARGIN", 0.08)
 
 # Guard globals with a reentrant lock
