@@ -15,12 +15,18 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import os
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-# Maximum seconds one authentication cycle is allowed to take
-_CYCLE_TIMEOUT_S = float(30.0)   # generous – includes liveness window
+# Maximum seconds one authentication cycle is allowed to take.
+# Keep this comfortably above face-wait + liveness + inference budget.
+_CYCLE_TIMEOUT_S = float(os.environ.get("DOOR_CYCLE_TIMEOUT_SECONDS", "45"))
+
+# Face-wait budget inside one cycle. This should be lower than cycle timeout,
+# otherwise normal "no face yet" scans can be misclassified as cycle hangs.
+_WAIT_FOR_FACE_TIMEOUT_S = float(os.environ.get("WAIT_FOR_FACE_TIMEOUT_SECONDS", "12"))
 
 
 def run_door_loop(app) -> None:
@@ -126,6 +132,11 @@ def _single_cycle(
             "Authentication cycle exceeded %.0f s timeout – forcing next cycle.",
             _CYCLE_TIMEOUT_S,
         )
+        # Best-effort camera reset so the next cycle starts from a clean state.
+        try:
+            camera.release()
+        except Exception:
+            pass
         # Thread is daemonised, will be cleaned up; just proceed to next cycle
         return
 
@@ -143,7 +154,7 @@ def _cycle_body(
     # Step 1: Wait for a face
     # ------------------------------------------------------------------
     lcd.show_idle()
-    frame_with_face = camera.wait_for_face(timeout=30.0, poll_interval=0.3)
+    frame_with_face = camera.wait_for_face(timeout=_WAIT_FOR_FACE_TIMEOUT_S, poll_interval=0.3)
 
     if frame_with_face is None:
         # Nothing detected; return to outer loop

@@ -170,9 +170,9 @@ def _get_detector():
             base_options=BaseOptions(model_asset_path=str(_MODEL_PATH)),
             running_mode=VisionRunningMode.IMAGE,
             num_faces=2,                          # detect >1 so we can reject ambiguous frames
-            min_face_detection_confidence=0.5,
-            min_face_presence_confidence=0.5,
-            min_tracking_confidence=0.5,
+            min_face_detection_confidence=0.6,
+            min_face_presence_confidence=0.6,
+            min_tracking_confidence=0.6,
             output_face_blendshapes=False,
             output_facial_transformation_matrixes=False,
         )

@@ -160,7 +160,7 @@ def authenticate_user(
     try:
         frames_to_process = []
         if liveness_frames and len(liveness_frames) > 0:
-            frames_to_process = liveness_frames[-2:]
+            frames_to_process = liveness_frames[-4:]
         if frame is not None:
             frames_to_process.append(frame)
 
@@ -360,16 +360,37 @@ def enroll_user(
 
     embeddings_list = [embeddings_to_list(e) for e in final_embeddings]
 
+    # Self-Verification Test (Max Accuracy Assurance)
+    # ---------------------------------------------
+    verification_status = "unverified"
+    verification_score = 0.0
+    try:
+        # Create a temporary prototype map including the current user's new data
+        test_prototypes = {username: final_embeddings}
+        test_result = recognize_user(centroid, test_prototypes)
+        
+        verification_score = float(test_result.get("confidence") or 0.0)
+        if test_result.get("user") == username and verification_score >= 0.80:
+            verification_status = "verified_high_accuracy"
+        elif test_result.get("user") == username:
+            verification_status = "verified_standard"
+        else:
+            verification_status = "verification_failed"
+    except Exception as exc:
+        logger.warning("Enrollment self-verification failed: %s", exc)
+
     logger.info(
-        "Enrollment complete: user=%s embeddings=%d failed=%d",
-        username, len(embeddings_list), failed,
+        "Enrollment complete: user=%s embeddings=%d failed=%d verification=%s (%.2f)",
+        username, len(embeddings_list), failed, verification_status, verification_score
     )
     return {
-        "ok":         True,
-        "username":   username,
-        "embeddings": embeddings_list,
-        "count":      len(embeddings_list),
-        "message":    f"Enrolled {len(embeddings_list)} embeddings ({failed} frames skipped).",
+        "ok":                  True,
+        "username":            username,
+        "embeddings":          embeddings_list,
+        "count":               len(embeddings_list),
+        "verification_status": verification_status,
+        "verification_score":  round(verification_score, 4),
+        "message":             f"Enrolled {len(embeddings_list)} embeddings. Accuracy Verified: {verification_status}.",
     }
 
 

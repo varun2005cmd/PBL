@@ -21,9 +21,9 @@ logger = logging.getLogger(__name__)
 
 # Constants for configuration
 _CAMERA_INDEX = int(os.environ.get("CAMERA_INDEX", "0"))
-_CAPTURE_WIDTH = 640
-_CAPTURE_HEIGHT = 480
-_CAPTURE_FPS = 15
+_CAPTURE_WIDTH = 800
+_CAPTURE_HEIGHT = 600
+_CAPTURE_FPS = 30
 
 # ---------------------------------------------------------------------------
 # Hardware State

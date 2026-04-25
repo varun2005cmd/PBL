@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 user_bp = Blueprint("user_bp", __name__)
 _enrollment_sessions = {}
 _enrollment_lock = threading.RLock()
-_ENROLLMENT_TARGET_FRAMES = 10
+_ENROLLMENT_TARGET_FRAMES = 15
 _ENROLLMENT_SESSION_TTL_SECONDS = 15 * 60
 
 

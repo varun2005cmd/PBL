@@ -39,10 +39,10 @@ def _env_float(name: str, default: float) -> float:
 
 
 # Balanced defaults (can be overridden via environment variables)
-DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.87)
+DISTANCE_THRESHOLD = _env_float("DISTANCE_THRESHOLD", 0.92)
 SVM_PROB_THRESHOLD = _env_float("SVM_PROB_THRESHOLD", 0.55)
 AMBIGUITY_MARGIN   = _env_float("AMBIGUITY_MARGIN", 0.03)
-STRONG_MATCH_DIST  = _env_float("STRONG_MATCH_DIST", 0.72)
+STRONG_MATCH_DIST  = _env_float("STRONG_MATCH_DIST", 0.75)
 NN_TOPK            = max(1, int(_env_float("NN_TOPK", 3)))
 ADAPTIVE_SIGMA     = _env_float("ADAPTIVE_SIGMA", 2.2)
 ADAPTIVE_MAX_RELAX = _env_float("ADAPTIVE_MAX_RELAX", 0.10)
@@ -207,11 +207,24 @@ def train_classifier(
         y  = le.fit_transform(y_names)
 
         # Build model in memory first (off-lock)
+        from sklearn.model_selection import GridSearchCV
+        
+        base_svm = SVC(kernel="linear", probability=True, class_weight="balanced")
+        param_grid = {"C": [0.1, 1.0, 5.0, 10.0, 50.0]}
+        
+        # Optimize C for the best margin based on the current user dataset
+        cv_count = min(3, len(unique_labels))
+        grid = GridSearchCV(base_svm, param_grid, cv=cv_count, scoring="accuracy", n_jobs=1)
+        
         pipeline = Pipeline([
             ("norm",  Normalizer()),
-            ("svm",   SVC(kernel="linear", probability=True, C=5.0)),
+            ("svm",   grid),
         ])
         pipeline.fit(X_arr, y)
+        
+        # Best C found
+        best_c = grid.best_params_["C"]
+        logger.info("SVM optimized with best C=%.1f", best_c)
 
         new_label_map = {int(i): str(name) for i, name in enumerate(le.classes_)}
 

@@ -10,7 +10,7 @@ const Enrollment = () => {
   const [name, setName] = useState('');
   const [session, setSession] = useState(null);
   const [captured, setCaptured] = useState(0);
-  const [targetFrames, setTargetFrames] = useState(5);
+  const [targetFrames, setTargetFrames] = useState(15);
   const [busy, setBusy] = useState(false);
   const [alert, setAlert] = useState(null);
 

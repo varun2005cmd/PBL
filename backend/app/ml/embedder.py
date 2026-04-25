@@ -101,17 +101,28 @@ def generate_embedding(face_crop: np.ndarray) -> Optional[np.ndarray]:
     if face_crop.dtype != np.uint8:
         face_crop = np.clip(face_crop, 0, 255).astype(np.uint8)
 
-    # Normalize face crop lighting using CLAHE (L channel in LAB color space)
+    # Advanced Preprocessing (Max Accuracy)
     try:
         import cv2
+        # 1. CLAHE (Local Contrast)
         lab = cv2.cvtColor(face_crop, cv2.COLOR_RGB2LAB)
         l, a, b = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         l = clahe.apply(l)
         lab = cv2.merge((l, a, b))
         face_crop = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+        # 2. Gamma Correction (Brightness Normalization)
+        gamma = 1.1
+        invGamma = 1.0 / gamma
+        table = np.array([((i / 255.0) ** invGamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+        face_crop = cv2.LUT(face_crop, table)
+
+        # 3. Sharpening (Feature Definition)
+        blurred = cv2.GaussianBlur(face_crop, (0, 0), 3.0)
+        face_crop = cv2.addWeighted(face_crop, 1.5, blurred, -0.5, 0)
     except Exception as exc:
-        logger.debug("generate_embedding: CLAHE normalization skipped: %s", exc)
+        logger.debug("generate_embedding: advanced preprocessing skipped: %s", exc)
 
     try:
         import torch
